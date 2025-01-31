@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VNC Chrome Controller</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- noVNCは組み込みビューアを使用 -->
+</head>
+<body>
+    <div class="container">
+        <div class="control-panel">
+            <div class="control-group">
+                <div class="status-panel">
+                    <p>Xvnc: <span id="vnc-status">停止中</span></p>
+                    <p>Chrome: <span id="chrome-status">停止中</span></p>
+                </div>
+                <div class="button-panel">
+                    <button id="browser-btn" class="btn">起動</button>
+                </div>
+            </div>
+            <div class="task-panel">
+                <textarea id="task-input" rows="5" placeholder="タスクを入力"></textarea>
+                <button id="execute-task-btn" class="btn" disabled>タスク実行</button>
+                <textarea id="log-output" rows="10" placeholder="ログ出力" readonly></textarea>
+            </div>
+        </div>
+        <div class="vnc-viewer">
+            <div id="vnc-container"></div>
+        </div>
+    </div>
+
+    <script>
+        let rfb = null;
+        let eventSource = null;
+        let isTaskRunning = false;
+        const taskInput = document.getElementById('task-input');
+        const executeTaskBtn = document.getElementById('execute-task-btn');
+        const logOutput = document.getElementById('log-output');
+
+        function updateStatus() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('vnc-status').textContent = data.vnc_running ? '実行中' : '停止中';
+                    document.getElementById('chrome-status').textContent = data.chrome_running ? '実行中' : '停止中';
+                    const toggleBtn = document.getElementById('browser-btn');
+                    toggleBtn.textContent = data.vnc_running ? '停止' : '起動';
+                });
+        }
+
+        function startVNC(host, port) {
+            if (rfb) {
+                rfb.disconnect();
+            }
+
+            // VNCクライアントの設定
+            const url = window.location.origin + '/novnc/vnc_lite.html?host=' + encodeURIComponent(host) + '&port=' + port + '&autoconnect=true';
+            document.getElementById('vnc-container').innerHTML = `<iframe src="${url}" style="width:100%;height:100%;border:none;"></iframe>`;
+        }
+
+        document.getElementById('browser-btn').addEventListener('click', () => {
+            const isRunning = document.getElementById('vnc-status').textContent === '実行中';
+            const endpoint = isRunning ? '/api/stop' : '/api/start';
+            
+            fetch(endpoint, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        if (!isRunning) {
+                            // 起動時の処理
+                            startVNC(data.host, data.port);
+                        } else {
+                            // 停止時の処理
+                            if (rfb) {
+                                rfb.disconnect();
+                                rfb = null;
+                            }
+                        }
+                        updateStatus();
+                    } else {
+                        alert('エラー: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('エラー:', error);
+                    alert('エラーが発生しました');
+                });
+        });
+
+        // タスク入力の監視
+        taskInput.addEventListener('input', () => {
+            if (!isTaskRunning) {
+                executeTaskBtn.disabled = taskInput.value.trim() === '';
+            }
+        });
+
+        // タスク実行/キャンセルボタンのハンドリング
+        executeTaskBtn.addEventListener('click', () => {
+            if (!isTaskRunning) {
+                startTask();
+            } else {
+                cancelTask();
+            }
+        });
+
+        // タスク開始
+        async function startTask() {
+            const task = taskInput.value.trim();
+            if (!task) return;
+
+            try {
+                const response = await fetch('/api/execute', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ task: task })
+                });
+
+                if (response.ok) {
+                    isTaskRunning = true;
+                    executeTaskBtn.textContent = 'タスクキャンセル';
+                    executeTaskBtn.classList.add('cancel');
+                    executeTaskBtn.disabled = false;
+                    
+                    // SSE接続開始
+                    eventSource = new EventSource('/api/task_progress');
+                    eventSource.onmessage = (event) => {
+                        logOutput.value += event.data + '\n';
+                        logOutput.scrollTop = logOutput.scrollHeight;
+                    };
+                    eventSource.onerror = () => {
+                        closeEventSource();
+                        resetTaskState();
+                    };
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                logOutput.value += 'エラーが発生しました\n';
+                resetTaskState();
+            }
+        }
+
+        // タスクキャンセル
+        async function cancelTask() {
+            try {
+                await fetch('/api/cancel_task', { method: 'POST' });
+                closeEventSource();
+                resetTaskState();
+            } catch (error) {
+                console.error('Error:', error);
+                logOutput.value += 'タスクのキャンセルに失敗しました\n';
+            }
+        }
+
+        // EventSourceのクローズ
+        function closeEventSource() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+        }
+
+        // タスク状態のリセット
+        function resetTaskState() {
+            isTaskRunning = false;
+            executeTaskBtn.textContent = 'タスク実行';
+            executeTaskBtn.classList.remove('cancel');
+            executeTaskBtn.disabled = taskInput.value.trim() === '';
+        }
+
+        // 定期的にステータスを更新
+        setInterval(updateStatus, 5000);
+        updateStatus();
+    </script>
+</body>
+</html>
