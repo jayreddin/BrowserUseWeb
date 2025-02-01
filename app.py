@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
+import os,sys,shutil
 import asyncio
-from flask import Flask, render_template, jsonify, send_from_directory, Response, request
+from flask import Flask, abort, render_template, jsonify, send_from_directory, Response, request, make_response, redirect
 from concurrent.futures import Future, ThreadPoolExecutor
 import subprocess
-import os,shutil
+import uuid
 import tempfile
 import traceback
 from typing import Tuple
@@ -12,6 +13,9 @@ import threading
 from datetime import datetime
 from queue import Queue
 from browser_task import BWSession
+from datetime import datetime, timedelta
+import signal
+
 
 Pool:ThreadPoolExecutor = ThreadPoolExecutor(20)
 TempHome="./tmp/home"
@@ -60,20 +64,27 @@ def is_proc( proc:subprocess.Popen|None ):
         return True
     return False
     
-def stop_proc( proc:subprocess.Popen|None ):
-    if proc is None:
-        return
-    try:
-        proc.terminate()
-    except:
-        pass
-    try:
-        proc.wait(timeout=5)
-    except:
-        pass
+async def stop_proc( proc:subprocess.Popen|None ):
+    if proc is not None:
+        try:
+            proc.terminate()
+        except:
+            pass
+        try:
+            while True:
+                try:
+                    proc.wait(timeout=0.01)
+                    return
+                except subprocess.TimeoutExpired:
+                    await asyncio.sleep(1)
+        except:
+            pass
 
-class VNCManager:
-    def __init__(self):
+class BwSession:
+    def __init__(self,session_id:str,client_addr:str|None):
+        self.session_id:str = session_id
+        self.client_addr:str|None = client_addr
+        self.last_access:datetime = datetime.now()
         self.geometry = "1024x768"
         self.vnc_proc:subprocess.Popen|None = None
         self.websockify_proc:subprocess.Popen|None = None
@@ -90,7 +101,7 @@ class VNCManager:
         self.message_queue: Queue = Queue()
         self.current_task: Future|None = None
 
-    def setup_vnc_server(self) -> Tuple[str, int]:
+    async def setup_vnc_server(self) -> Tuple[str, int]:
         """VNCサーバーをセットアップし、ホスト名とポートを返す"""
         if not is_proc( self.vnc_proc ):
             try:
@@ -105,7 +116,7 @@ class VNCManager:
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
                 # VNCサーバーの起動を待つ
-                time.sleep(1)
+                await asyncio.sleep(1)
 
                 # websockifyを起動（websockifyは5900番台、VNCは6900番台を使用）
                 self.websockify_proc = subprocess.Popen([
@@ -116,7 +127,8 @@ class VNCManager:
                     f"0.0.0.0:{self.ws_port}",
                     f"localhost:{self.vnc_port}"
                 ])
-                time.sleep(2)  # websockifyの起動を待つ
+                # websockifyの起動を待つ
+                await asyncio.sleep(1)
             except:
                 traceback.print_exc()
 
@@ -154,16 +166,15 @@ class VNCManager:
         def writer(msg):
             self.message_queue.put(msg)
         try:
-            print("### start brwoser-use")
             session = BWSession(self.cdn_port,writer)
             await session.start(task_info)
-            print("### stop brwoser-use")
             await session.stop()
         except:
             pass
         finally:
-            print("### done brwoser-use")
             self.task_running = False
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            self.message_queue.put(f"[{timestamp}] タスクが完了しました")
 
     async def _run_task_dmy(self, task_info: str) -> None:
         """タスクを実行（非同期）"""
@@ -181,6 +192,9 @@ class VNCManager:
             if self.task_running:  # 正常終了
                 timestamp = datetime.now().strftime("%H:%M:%S")
                 self.message_queue.put(f"[{timestamp}] タスクが完了しました")
+            else:
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                self.message_queue.put(f"[{timestamp}] タスクがキャンセルされました")
         except:
             traceback.print_exc()
         finally:
@@ -190,43 +204,122 @@ class VNCManager:
         """タスクをキャンセル"""
         if self.task_running:
             self.task_running = False
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            self.message_queue.put(f"[{timestamp}] タスクがキャンセルされました")
 
-    def cleanup(self) -> None:
+    async def cleanup(self) -> None:
         """リソースをクリーンアップ"""
         try:
             # タスクをキャンセル
             self.cancel_task()
             
-            stop_proc( self.chrome_process )
+            await stop_proc( self.chrome_process )
             self.chrome_process = None
+
+            await stop_proc( self.websockify_proc )
+            self.websockify_proc = None
+
+            await stop_proc( self.vnc_proc )
+            self.vnc_proc = None
+
+            # 残存プロセスを強制終了
+            if self.display_num>0:
+                cmd = f"pkill -f 'Xvnc.*:{self.display_num}'"
+                subprocess.run(["/bin/bash", "-c", cmd], check=False)
+            if self.vnc_port>0 and self.ws_port>0:
+                cmd = f"pkill -f 'websockify.*:{self.ws_port}|:{self.vnc_port}'"
+                subprocess.run(["/bin/bash", "-c", cmd], check=False)
+                cmd = f"pkill -f 'websockify.*:{self.vnc_port}|:{self.ws_port}'"
+                subprocess.run(["/bin/bash", "-c", cmd], check=False)
             try:
                 shutil.rmtree(self.workdir)
             except:
                 pass
-
-            stop_proc( self.websockify_proc )
-            self.websockify_proc = None
-
-            stop_proc( self.vnc_proc )
-            self.vnc_proc = None
-
-            # 残存プロセスを強制終了
-            cmd = f"pkill -f 'Xvnc.*:{self.display_num}'"
-            subprocess.run(["/bin/bash", "-c", cmd], check=False)
-            cmd = f"pkill -f 'websockify.*:{self.ws_port}|:{self.vnc_port}'"
-            subprocess.run(["/bin/bash", "-c", cmd], check=False)
-            cmd = f"pkill -f 'websockify.*:{self.vnc_port}|:{self.ws_port}'"
-            subprocess.run(["/bin/bash", "-c", cmd], check=False)
         except Exception as e:
             print(f"VNCサーバー停止中にエラーが発生: {e}")
 
-vnc_manager = VNCManager()
+
+
+# セッションデータを保存する辞書
+class SessionStore:
+    def __init__(self):
+        self.sessions: dict[str, BwSession] = {}
+        self.cleanup_interval = timedelta(minutes=30)
+        self.session_timeout = timedelta(hours=2)
+        self._last_cleanup = datetime.now()
+
+    async def cleanup_old_sessions(self):
+        """古いセッションをクリーンアップ"""
+        now = datetime.now()
+        if now - self._last_cleanup < self.cleanup_interval:
+            return
+        
+        expired_sessions = [
+            sid for sid, session in self.sessions.items()
+            if now - session.last_access > self.session_timeout
+        ]
+        
+        for sid in expired_sessions:
+            session = self.sessions[sid]
+            await session.cleanup()
+            del self.sessions[sid]
+        
+        self._last_cleanup = now
+
+    def get(self, session_id: str|None) -> BwSession | None:
+        """セッションを取得し、タイムスタンプを更新"""
+        if session_id and session_id in self.sessions:
+            session = self.sessions[session_id]
+            session.last_access = datetime.now()
+            return session
+        return None
+
+    def create(self, session_id: str, client_addr:str|None ) -> BwSession:
+        """新しいセッションを作成"""
+        session = BwSession(session_id, client_addr)
+        self.sessions[session_id] = session
+        return session
+
+    async def remove(self, session_id: str) -> None:
+        """セッションを削除"""
+        if session_id in self.sessions:
+            session = self.sessions[session_id]
+            await session.cleanup()
+            del self.sessions[session_id]
+
+session_store = SessionStore()
+
+def cleanup_sessions():
+    print("### CLEANUP SESSIONS ###")
+    # 全セッションのクリーンアップ
+    if session_store:
+        for session_id in list(session_store.sessions.keys()):
+            asyncio.run( session_store.remove(session_id) )
 
 @app.route('/')
 async def index():
-    return send_from_directory('static', 'index.html')
+    try:
+        client_addr = request.remote_addr
+        server_addr = request.host.split(':')[0]
+        session_id = request.cookies.get('session_id')
+        ses = session_store.get(session_id)
+        if ses is None:
+            session_id = str(uuid.uuid4())  # 新しい session_id を生成
+            session_store.create(session_id,client_addr)
+            resp = make_response(redirect(request.url))
+            # セキュリティ強化のためのクッキー設定
+            resp.set_cookie(
+                'session_id',
+                session_id,
+                httponly=True,  # JavaScriptからのアクセスを防ぐ
+                max_age=7200    # 2時間で有効期限切れ
+            )
+            return resp
+        else:
+            return send_from_directory('static', 'index.html')
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 @app.route('/favicon.ico')
 async def favicon():
@@ -241,100 +334,83 @@ async def novnc_files(path):
     """noVNCのファイルを提供"""
     return send_from_directory(novncdir, path)
 
-@app.route('/api/start', methods=['POST'])
-async def start_chrome():
+@app.route('/api/<path:api>', methods=['GET','POST'])
+async def service_api(api):
     try:
-        hostaddr = request.host.split(':')[0]
-        hostname, port = vnc_manager.setup_vnc_server()
-        time.sleep(1)
-        vnc_manager.launch_chrome()
-        return jsonify({
-            'status': 'success',
-            'host': hostaddr,
-            'port': vnc_manager.ws_port,
-        })
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
+        client_addr = request.remote_addr
+        server_addr = request.host.split(':')[0]
+        session_id = request.cookies.get('session_id')
+        ses:BwSession|None = session_store.get(session_id)
+        if ses is None:
+            abort(401)
 
-@app.route('/api/status')
-async def get_status():
-    return jsonify({
-        'vnc_running': is_proc(vnc_manager.vnc_proc) and is_proc(vnc_manager.websockify_proc),
-        'chrome_running': is_proc(vnc_manager.chrome_process)
-    })
-
-@app.route('/api/stop', methods=['POST'])
-async def stop_chrome():
-    try:
-        vnc_manager.cleanup()
-        return jsonify({'status': 'success'})
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
-
-@app.route('/api/execute', methods=['POST'])
-async def execute_task():
-    """タスクを実行"""
-    try:
-        if not is_proc(vnc_manager.chrome_process):
+        if api=='start':
+            hostname, port = await ses.setup_vnc_server()
+            await asyncio.sleep(1)
+            ses.launch_chrome()
             return jsonify({
-                'status': 'error',
-                'message': 'Chromeが起動していません'
-            }), 400
-
-        data = request.get_json()
-        task = data.get('task', '')
-        if not task:
+                'status': 'success',
+                'host': server_addr,
+                'port': ses.ws_port,
+            })
+        elif api=='execute':
+            data = request.get_json()
+            task = data.get('task', '')
+            if not task:
+                return jsonify({'status': 'error','message': 'タスクが指定されていません'}), 400
+            if not is_proc(ses.chrome_process):
+                return jsonify({'status': 'error', 'message': 'Chromeが起動していません'}), 400
+            await ses.start_task(task)
+            return jsonify({'status': 'success'})
+        elif api=='status':
             return jsonify({
-                'status': 'error',
-                'message': 'タスクが指定されていません'
-            }), 400
-
-        await vnc_manager.start_task(task)
-        return jsonify({'status': 'success'})
+                'vnc_running': is_proc(ses.vnc_proc) and is_proc(ses.websockify_proc),
+                'chrome_running': is_proc(ses.chrome_process)
+            })
+        elif api=='task_progress':
+            """SSEエンドポイント - タスクの進捗状況を送信"""
+            def generate():
+                try:
+                    while True:
+                        try:
+                            # メッセージキューからメッセージを取得
+                            message = ses.message_queue.get()
+                            yield f"data: {message}\n\n"
+                            # タスクが終了した場合は接続を終了
+                            if not ses.task_running:
+                                break
+                        except:
+                            break
+                finally:
+                    pass
+            return Response(generate(), mimetype='text/event-stream')
+        elif api=='stop':
+            await ses.cleanup()
+            return jsonify({'status': 'success'})
+        elif api=='cancel_task':
+            ses.cancel_task()
+            return jsonify({'status': 'success'})
+        abort(404)
     except Exception as e:
         return jsonify({
             'status': 'error',
             'message': str(e)
         }), 500
+    finally:
+        pass
 
-@app.route('/api/cancel_task', methods=['POST'])
-async def cancel_task():
-    """タスクをキャンセル"""
-    try:
-        vnc_manager.cancel_task()
-        return jsonify({'status': 'success'})
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
-
-@app.route('/api/task_progress')
-async def task_progress():
-    """SSEエンドポイント - タスクの進捗状況を送信"""
-    def generate():
-        while True:
-            try:
-                # メッセージキューからメッセージを取得
-                message = vnc_manager.message_queue.get()
-                yield f"data: {message}\n\n"
-                
-                # タスクが終了した場合は接続を終了
-                if not vnc_manager.task_running:
-                    break
-            except:
-                break
-
-    return Response(generate(), mimetype='text/event-stream')
-
-if __name__ == '__main__':
+def main():
+    def sig_handler(signum, frame) -> None:
+        sys.exit(1)
+    signal.signal(signal.SIGTERM, sig_handler)
     try:
         app.run(host='0.0.0.0', port=5000)
     finally:
-        vnc_manager.cleanup()
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        cleanup_sessions()
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+if __name__ == '__main__':
+    main()

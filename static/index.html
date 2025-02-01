@@ -31,12 +31,19 @@
     </div>
 
     <script>
-        let rfb = null;
         let eventSource = null;
         let isTaskRunning = false;
         const taskInput = document.getElementById('task-input');
         const executeTaskBtn = document.getElementById('execute-task-btn');
         const logOutput = document.getElementById('log-output');
+
+        function getNoVNCRFB() {
+            let iframe = document.getElementById('vnc-container').querySelector('iframe');
+            if (iframe && iframe.contentWindow && iframe.contentWindow.UI) {
+                return iframe.contentWindow.UI.rfb;
+            }
+            return null;
+        }
 
         function updateStatus() {
             fetch('/api/status')
@@ -50,6 +57,7 @@
         }
 
         function startVNC(host, port) {
+            const rfb = getNoVNCRFB();
             if (rfb) {
                 rfb.disconnect();
             }
@@ -57,6 +65,10 @@
             // VNCクライアントの設定
             const url = window.location.origin + '/novnc/vnc_lite.html?host=' + encodeURIComponent(host) + '&port=' + port + '&autoconnect=true&resize=scale';
             document.getElementById('vnc-container').innerHTML = `<iframe src="${url}" style="width:100%;height:100%;border:none;"></iframe>`;
+            let toolbar = document.getElementById("noVNC_control_bar");
+            if (toolbar) {
+                toolbar.style.display = "none";
+            }
         }
 
         document.getElementById('browser-btn').addEventListener('click', () => {
@@ -72,9 +84,9 @@
                             startVNC(data.host, data.port);
                         } else {
                             // 停止時の処理
+                            const rfb = getNoVNCRFB();
                             if (rfb) {
                                 rfb.disconnect();
-                                rfb = null;
                             }
                         }
                         updateStatus();
@@ -110,6 +122,10 @@
             if (!task) return;
 
             try {
+                const rfb = getNoVNCRFB();
+                if (rfb) {
+                    rfb.viewOnly = true;
+                }
                 const response = await fetch('/api/execute', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -166,6 +182,10 @@
             executeTaskBtn.textContent = 'タスク実行';
             executeTaskBtn.classList.remove('cancel');
             executeTaskBtn.disabled = taskInput.value.trim() === '';
+            const rfb = getNoVNCRFB();
+            if (rfb) {
+                rfb.viewOnly = false;
+            }
         }
 
         // 定期的にステータスを更新
