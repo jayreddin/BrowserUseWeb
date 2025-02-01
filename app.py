@@ -85,7 +85,7 @@ class BwSession:
         self.session_id:str = session_id
         self.client_addr:str|None = client_addr
         self.last_access:datetime = datetime.now()
-        self.geometry = "1024x768"
+        self.geometry = "1024x1024"
         self.vnc_proc:subprocess.Popen|None = None
         self.websockify_proc:subprocess.Popen|None = None
         self.chrome_process:subprocess.Popen|None = None
@@ -342,7 +342,7 @@ async def service_api(api):
         session_id = request.cookies.get('session_id')
         ses:BwSession|None = session_store.get(session_id)
         if ses is None:
-            abort(401)
+            return jsonify({'status': 'error', 'message': 'unauth'}), 401
 
         if api=='start':
             hostname, port = await ses.setup_vnc_server()
@@ -390,8 +390,10 @@ async def service_api(api):
         elif api=='cancel_task':
             ses.cancel_task()
             return jsonify({'status': 'success'})
-        abort(404)
+        return jsonify({'status': 'error', 'message': 'invalid api name'}), 404
+
     except Exception as e:
+        traceback.print_exc()
         return jsonify({
             'status': 'error',
             'message': str(e)

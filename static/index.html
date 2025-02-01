@@ -10,20 +10,20 @@
 <body>
     <div class="container">
         <div class="control-panel">
-            <div class="control-group">
-                <div class="status-panel">
-                    <p>Xvnc: <span id="vnc-status">停止中</span></p>
-                    <p>Chrome: <span id="chrome-status">停止中</span></p>
+            <textarea id="task-input" rows="5" placeholder="タスクを入力"></textarea>
+            <div class="button-panel">
+                <div id="vnc-status" class="status-group">
+                    <span class="status-indicator"></span>
+                    <span class="status-text">Xvnc</span>
                 </div>
-                <div class="button-panel">
-                    <button id="browser-btn" class="btn">起動</button>
+                <div id="chrome-status" class="status-group">
+                    <span class="status-indicator"></span>
+                    <span class="status-text">Chrome</span>
                 </div>
-            </div>
-            <div class="task-panel">
-                <textarea id="task-input" rows="5" placeholder="タスクを入力"></textarea>
+                <button id="browser-btn" class="btn">起動</button>
                 <button id="execute-task-btn" class="btn" disabled>タスク実行</button>
-                <textarea id="log-output" rows="10" placeholder="ログ出力" readonly></textarea>
             </div>
+            <textarea id="log-output" rows="10" placeholder="ログ出力" readonly></textarea>
         </div>
         <div class="vnc-viewer">
             <div id="vnc-container"></div>
@@ -32,62 +32,79 @@
 
     <script>
         let eventSource = null;
+        let isBrowserRunning = false;
         let isTaskRunning = false;
         const taskInput = document.getElementById('task-input');
         const executeTaskBtn = document.getElementById('execute-task-btn');
         const logOutput = document.getElementById('log-output');
-
-        function getNoVNCRFB() {
-            let iframe = document.getElementById('vnc-container').querySelector('iframe');
-            if (iframe && iframe.contentWindow && iframe.contentWindow.UI) {
-                return iframe.contentWindow.UI.rfb;
-            }
-            return null;
-        }
+        // 定期的にステータスを更新
+        let statusInterval = setInterval(updateStatus, 5000);
 
         function updateStatus() {
             fetch('/api/status')
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        clearInterval(statusInterval);
+                        throw new Error('Status check failed');
+                    }
+                    return response.json();
+                })
                 .then(data => {
-                    document.getElementById('vnc-status').textContent = data.vnc_running ? '実行中' : '停止中';
-                    document.getElementById('chrome-status').textContent = data.chrome_running ? '実行中' : '停止中';
+                    const vncStatus = document.getElementById('vnc-status');
+                    const chromeStatus = document.getElementById('chrome-status');
                     const toggleBtn = document.getElementById('browser-btn');
-                    toggleBtn.textContent = data.vnc_running ? '停止' : '起動';
+                    const vncIndicator = vncStatus.querySelector('.status-indicator');
+                    const chromeIndicator = chromeStatus.querySelector('.status-indicator');
+                    
+                    if( data.vnc_running ) {
+                        vncIndicator.classList.remove('stopped');
+                        vncIndicator.classList.add('running');
+                    } else {
+                        vncIndicator.classList.remove('running');
+                        vncIndicator.classList.add('stopped');
+                    }
+                    if( data.chrome_running ) {
+                        chromeIndicator.classList.remove('stopped');
+                        chromeIndicator.classList.add('running');
+                    } else {
+                        chromeIndicator.classList.remove('running');
+                        chromeIndicator.classList.add('stopped');
+                    }
+                    if( data.vnc_running || data.chrome_running ) {
+                        isBrowserRunning = true;
+                        toggleBtn.textContent = '停止';
+                    } else {
+                        isBrowserRunning = false;
+                        toggleBtn.textContent = '起動';
+                    }
+                    
+                })
+                .catch(error => {
+                    console.error('Error:', error);
                 });
         }
 
-        function startVNC(host, port) {
-            const rfb = getNoVNCRFB();
-            if (rfb) {
-                rfb.disconnect();
-            }
+        updateStatus();
 
+        function startVNC(host, port) {
             // VNCクライアントの設定
-            const url = window.location.origin + '/novnc/vnc_lite.html?host=' + encodeURIComponent(host) + '&port=' + port + '&autoconnect=true&resize=scale';
-            document.getElementById('vnc-container').innerHTML = `<iframe src="${url}" style="width:100%;height:100%;border:none;"></iframe>`;
-            let toolbar = document.getElementById("noVNC_control_bar");
-            if (toolbar) {
-                toolbar.style.display = "none";
-            }
+            const url = window.location.origin + '/novnc/vnc_lite.html?host=' + encodeURIComponent(host) + '&port=' + port + '&autoconnect=true&scale=true';
+            document.getElementById('vnc-container').innerHTML = `<iframe id="vnc-frame" src="${url}" style="width:100%;height:100%;border:none;"></iframe>`;
         }
 
         document.getElementById('browser-btn').addEventListener('click', () => {
-            const isRunning = document.getElementById('vnc-status').textContent === '実行中';
-            const endpoint = isRunning ? '/api/stop' : '/api/start';
-            
+
+            const endpoint = isBrowserRunning ? '/api/stop' : '/api/start';            
             fetch(endpoint, { method: 'POST' })
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
-                        if (!isRunning) {
+                        if (!isBrowserRunning) {
                             // 起動時の処理
                             startVNC(data.host, data.port);
                         } else {
                             // 停止時の処理
-                            const rfb = getNoVNCRFB();
-                            if (rfb) {
-                                rfb.disconnect();
-                            }
+                            document.getElementById('vnc-container').innerHTML = 'a';
                         }
                         updateStatus();
                     } else {
@@ -122,10 +139,6 @@
             if (!task) return;
 
             try {
-                const rfb = getNoVNCRFB();
-                if (rfb) {
-                    rfb.viewOnly = true;
-                }
                 const response = await fetch('/api/execute', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -182,15 +195,8 @@
             executeTaskBtn.textContent = 'タスク実行';
             executeTaskBtn.classList.remove('cancel');
             executeTaskBtn.disabled = taskInput.value.trim() === '';
-            const rfb = getNoVNCRFB();
-            if (rfb) {
-                rfb.viewOnly = false;
-            }
         }
 
-        // 定期的にステータスを更新
-        setInterval(updateStatus, 5000);
-        updateStatus();
     </script>
 </body>
 </html>
