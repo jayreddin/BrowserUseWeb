@@ -55,7 +55,7 @@
             }
 
             // VNCクライアントの設定
-            const url = window.location.origin + '/novnc/vnc_lite.html?host=' + encodeURIComponent(host) + '&port=' + port + '&autoconnect=true';
+            const url = window.location.origin + '/novnc/vnc_lite.html?host=' + encodeURIComponent(host) + '&port=' + port + '&autoconnect=true&resize=scale';
             document.getElementById('vnc-container').innerHTML = `<iframe src="${url}" style="width:100%;height:100%;border:none;"></iframe>`;
         }
 

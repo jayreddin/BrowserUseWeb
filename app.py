@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
 import asyncio
 from flask import Flask, render_template, jsonify, send_from_directory, Response, request
+from concurrent.futures import Future, ThreadPoolExecutor
 import subprocess
-import os
+import os,shutil
+import tempfile
 import traceback
 from typing import Tuple
 import time
 import threading
 from datetime import datetime
 from queue import Queue
-from test2 import BWSession
+from browser_task import BWSession
+
+Pool:ThreadPoolExecutor = ThreadPoolExecutor(20)
+TempHome="./tmp/home"
 
 app = Flask(__name__)
 
+novncdir="libs/noVNC-1.5.0"
 def is_port_available(port: int) -> bool:
     """指定されたポートが使用可能かチェック"""
     import socket
@@ -34,8 +40,8 @@ def find_available_display() -> tuple[int,int,int,int]:
             vnc_port = port
             break
     ws_port:int=None # type: ignore
-    for num in range(10, 100):
-        port = 6900 + num   # websockify用ポート
+    for num in range(30, 100):
+        port = 5000 + num   # websockify用ポート
         if is_port_available(port):
             ws_port = port
             break
@@ -77,11 +83,12 @@ class VNCManager:
         self.vnc_port = b
         self.ws_port = c
         self.cdn_port = d
-        
+        os.makedirs(TempHome,exist_ok=True)
+        self.workdir = tempfile.mkdtemp( dir=TempHome,prefix="home",suffix=None)
         # タスク管理用の属性を追加
         self.task_running = False
         self.message_queue: Queue = Queue()
-        self.current_task: asyncio.Task|None = None
+        self.current_task: Future|None = None
 
     def setup_vnc_server(self) -> Tuple[str, int]:
         """VNCサーバーをセットアップし、ホスト名とポートを返す"""
@@ -103,7 +110,7 @@ class VNCManager:
                 # websockifyを起動（websockifyは5900番台、VNCは6900番台を使用）
                 self.websockify_proc = subprocess.Popen([
                     "websockify",
-                    "--web", "/usr/share/novnc",
+                    "--web", os.path.abspath(novncdir),
                     "--heartbeat", "30",
                     "--verbose",
                     f"0.0.0.0:{self.ws_port}",
@@ -123,9 +130,10 @@ class VNCManager:
         if not is_proc( self.chrome_process ):
             env = os.environ.copy()
             env["DISPLAY"] = f":{self.display_num}"
-            home=env["HOME"]
-            bcmd = [ "bwrap", "--bind", "/", "/", "--dev", "/dev", "--tmpfs", home,
-                    "google-chrome", "--start-maximized", "--no-first-run", "--disable-sync", "--no-default-browser-check", f"--remote-debugging-port={self.cdn_port}" ]
+            env["HOME"]=self.workdir
+            bcmd=["google-chrome", "--start-maximized", "--no-first-run", "--disable-sync", "--no-default-browser-check", "--disable-gpu", f"--remote-debugging-port={self.cdn_port}" ]
+            #bcmd = [ "bwrap", "--bind", "/", "/", "--dev", "/dev", "--tmpfs", home,
+            #        "google-chrome", "--start-maximized", "--no-first-run", "--disable-sync", "--no-default-browser-check", f"--remote-debugging-port={self.cdn_port}" ]
             self.chrome_process = subprocess.Popen( bcmd, env=env )
 
     async def start_task(self, task_info: str) -> None:
@@ -134,11 +142,30 @@ class VNCManager:
             raise RuntimeError("タスクが既に実行中です")
         
         self.task_running = True
-        self.current_task = asyncio.create_task( self._run_task(task_info) )
+        #self.current_task = asyncio.create_task( self._run_task(task_info) )
         #self.current_task = threading.Thread(target=self._run_task, args=(task_info,))
         #self.current_task.start()
+        self.current_task = Pool.submit(self._start_task,task_info)
 
-    async def _run_task(self, task_info: str) -> None:
+    def _start_task(self, task_info: str ) ->None:
+        asyncio.run(self._run_task(task_info))
+
+    async def _run_task(self, task_info: str ) ->None:
+        def writer(msg):
+            self.message_queue.put(msg)
+        try:
+            print("### start brwoser-use")
+            session = BWSession(self.cdn_port,writer)
+            await session.start(task_info)
+            print("### stop brwoser-use")
+            await session.stop()
+        except:
+            pass
+        finally:
+            print("### done brwoser-use")
+            self.task_running = False
+
+    async def _run_task_dmy(self, task_info: str) -> None:
         """タスクを実行（非同期）"""
         try:
             #ses = BWSession(self.cdn_port )
@@ -174,6 +201,10 @@ class VNCManager:
             
             stop_proc( self.chrome_process )
             self.chrome_process = None
+            try:
+                shutil.rmtree(self.workdir)
+            except:
+                pass
 
             stop_proc( self.websockify_proc )
             self.websockify_proc = None
@@ -208,19 +239,18 @@ async def style_css():
 @app.route('/novnc/<path:path>')
 async def novnc_files(path):
     """noVNCのファイルを提供"""
-    if path.startswith('core/'):
-        return send_from_directory('/usr/share/novnc', path)
-    return send_from_directory('/usr/share/novnc', path)
+    return send_from_directory(novncdir, path)
 
 @app.route('/api/start', methods=['POST'])
 async def start_chrome():
     try:
+        hostaddr = request.host.split(':')[0]
         hostname, port = vnc_manager.setup_vnc_server()
         time.sleep(1)
         vnc_manager.launch_chrome()
         return jsonify({
             'status': 'success',
-            'host': "localhost",
+            'host': hostaddr,
             'port': vnc_manager.ws_port,
         })
     except Exception as e:
