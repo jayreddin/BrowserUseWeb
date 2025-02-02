@@ -32,48 +32,20 @@ body {
 }
 
 /* ステータスインジケータ */
-.status-group {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 6px;
-    background-color: #f8f9fa;
-    border-radius: 4px;
-}
-
-.status-indicator {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    display: inline-block;
-}
-
 .status-text {
     font-size: 0.5em;
+    gap: 4px;
+    padding: 2px 6px;
     color: #495057;
+    border-radius: 4px;
 }
 
 .running {
     background-color: #4CAF50;
-    box-shadow: 0 0 8px #4CAF50;
-    animation: pulse 2s infinite;
 }
 
 .stopped {
     background-color: #9e9e9e;
-    box-shadow: 0 0 4px rgba(0, 0, 0, 0.2);
-}
-
-@keyframes pulse {
-    0% {
-        box-shadow: 0 0 8px #4CAF50;
-    }
-    50% {
-        box-shadow: 0 0 16px #4CAF50;
-    }
-    100% {
-        box-shadow: 0 0 8px #4CAF50;
-    }
 }
 
 #task-input {

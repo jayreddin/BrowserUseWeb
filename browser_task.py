@@ -26,18 +26,18 @@ class XAgent(Agent):
             self._writer(msg)
 
     async def step(self, step_info: AgentStepInfo|None = None) -> None:
-        self.print(f"##[STEP] STEP-{self.n_steps}")
+        self.print(f"----------------\nSTEP-{self.n_steps}")
         await super().step(step_info)
 
     def _log_response(self, response: AgentOutput) -> None:
         super()._log_response(response)
-        self.print(f'##[log_response] Eval: {response.current_state.evaluation_previous_goal}')
-        self.print(f'[log_response] Memory: {response.current_state.memory}')
-        self.print(f'[log_response] Next goal: {response.current_state.next_goal}')
+        self.print(f'Eval: {response.current_state.evaluation_previous_goal}')
+        self.print(f'Memory: {response.current_state.memory}')
+        self.print(f'Next goal: {response.current_state.next_goal}')
         for i, action in enumerate(response.action):
-            self.print(f'[log_response] Action {i + 1}/{len(response.action)}: {action.model_dump_json(exclude_unset=True)}')
+            self.print(f'Action {i + 1}/{len(response.action)}: {action.model_dump_json(exclude_unset=True)}')
 
-class BWSession:
+class BwTask:
 
     def __init__(self,cdp_port:int, writer:Callable[[str],None]|None=None):
         self._writer:Callable[[str],None]|None = writer
@@ -64,15 +64,9 @@ class BWSession:
         result = await self._agent.run()
         print(result)
     
-    async def stop_browser(self):
-        try:
-            pass
-        except:
-            pass
-
     async def stop(self):
         try:
-            await self.stop_browser()
+            pass
         except:
             pass
 
@@ -80,7 +74,7 @@ async def main():
     task="キャトルアイサイエンス株式会社の会社概要をしらべて"
     #task="192.168.1.200にmaeda/maeda0501でログインして、通常モードに切り替えて、会議室予約に、「1/30 テストですよ 参加者前田」を追加する。"
     #task="Amazonで、格安の2.5inch HDDを探して製品URLをリストアップしてください。"
-    session = BWSession(9222)
+    session = BwTask(9222)
     await session.start(task)
     await session.stop()
 
