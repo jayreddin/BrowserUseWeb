@@ -26,7 +26,8 @@ class XAgent(Agent):
             self._writer(msg)
 
     async def step(self, step_info: AgentStepInfo|None = None) -> None:
-        self.print(f"----------------\nSTEP-{self.n_steps}")
+        self.print(f"----------------")
+        self.print(f"STEP-{self.n_steps}")
         await super().step(step_info)
 
     def _log_response(self, response: AgentOutput) -> None:
