@@ -8,6 +8,8 @@ from browser_use.agent.views import ActionResult, AgentOutput, AgentHistoryList,
 import asyncio
 from typing import Callable
 from pydantic import BaseModel
+from logging import Logger,getLogger
+logger:Logger = getLogger(__name__)
 
 os.environ["ANONYMIZED_TELEMETRY"] = "false"
 
@@ -67,7 +69,8 @@ class BwTask:
     
     async def stop(self):
         try:
-            pass
+            if self._agent is not None:
+                self._agent.stop()
         except:
             pass
 

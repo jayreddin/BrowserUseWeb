@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Browser-use sample</title>
     <link rel="stylesheet" href="style.css">
-    <!-- noVNCは組み込みビューアを使用 -->
 </head>
 <body>
     <div class="container">
@@ -26,9 +25,9 @@
     </div>
 
     <script>
-        let eventSource = null;
+        let session_id = null;
         let isBrowserRunning = 0;
-        let isTaskRunning = false;
+        let isTaskRunning = true;
         const taskInput = document.getElementById('task-input');
         const executeTaskBtn = document.getElementById('execute-task-btn');
         const vncStatus = document.getElementById('vnc-status');
@@ -37,8 +36,102 @@
         const toggleBtn = document.getElementById('browser-btn');
         const logOutput = document.getElementById('log-output');
         const vncContainer = document.getElementById('vnc-container');
-        // 定期的にステータスを更新
-        let statusInterval = setInterval(updateStatus, 5000);
+        taskInput.disabled = true;
+        executeTaskBtn.disabled = true;
+        toggleBtn.disabled = true;
+
+        function logPrint(msg) {
+            logOutput.value += msg + '\n';
+            logOutput.scrollTop = logOutput.scrollHeight;
+        }
+
+        // SSE接続開始
+        function updateIndicator(elem,stat) {
+            if(stat) {
+                elem.classList.remove('stopped')
+                elem.classList.add('running')
+            } else {
+                elem.classList.remove('running')
+                elem.classList.add('stopped')
+            }
+        }
+        function xx_update_status(data) {
+            try {
+                if( data.sid ) {
+                    session_id = data.sid;
+                    taskInput.disabled = false;
+                    executeTaskBtn.disabled = taskInput.value.trim() === '';
+                    toggleBtn.disabled = false;
+                }
+                if (data.status != 'success') {
+                    if( data.status ) {
+                        logPrint( data.status+':'+data.msg);
+                    } else {
+                        logPrint('error:'+data.msg);
+                    }
+                    return;
+                }
+
+                const srv = data.sv;
+                const vnc_port = Number.isInteger(data.vnc) && data.vnc>0 ? data.vnc : 0;
+                const ws_port = Number.isInteger(data.ws) && data.ws>0 ? data.ws : 0;
+                const br_port = Number.isInteger(data.br) && data.br>0 ? data.br : 0;
+                const is_task = Number.isInteger(data.task) && data.task>0 ? true: false;
+                updateIndicator(vncStatus,vnc_port>0);
+                vncStatus.innerText = vnc_port>0 ? 'Xvnc:'+vnc_port : 'Xvnc'
+                updateIndicator(wsStatus,ws_port>0);
+                updateIndicator(chromeStatus,br_port>0);
+                if(vnc_port>0 && ws_port>0 && br_port>0 ) {
+                    if(isBrowserRunning!=2) {
+                        isBrowserRunning=2;
+                        startVNC(srv,ws_port)
+                    }
+                } else {
+                    if(isBrowserRunning==2) {
+                        stopVNC();
+                    }
+                    if( vnc_port>0 || ws_port>0 || br_port>0 ) {
+                        isBrowserRunning = 1;
+                        toggleBtn.textContent = '停止';
+                    } else {
+                        isBrowserRunning = 0;
+                        toggleBtn.textContent = '起動';
+                    }
+                    toggleBtn.disabled = !session_id;
+                }
+                if( isTaskRunning != is_task ) {
+                    isTaskRunning = is_task;
+                    if( is_task ) {
+                        executeTaskBtn.textContent = 'タスクキャンセル';
+                        executeTaskBtn.classList.add('cancel');
+                        executeTaskBtn.disabled = !session_id;
+                    } else {
+                        executeTaskBtn.textContent = 'タスク実行';
+                        executeTaskBtn.classList.remove('cancel');
+                        executeTaskBtn.disabled = taskInput.value.trim() === '';
+                    }
+                }
+                if( data.msg ) {
+                    logPrint(data.msg)
+                }
+            } catch(ex) {
+
+            }
+        }
+        // SSE接続開始
+        const SessionKeeper = new EventSource('/api/session');
+        SessionKeeper.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data)
+                xx_update_status(data)
+            }catch{
+
+            }
+        };
+        SessionKeeper.onerror = () => {
+            console.log('keep error')
+            SessionKeeper.close();
+        };
 
         function stopVNC() {
             const fr = document.getElementById('vnc-frame');
@@ -53,72 +146,12 @@
             vncContainer.innerHTML = `<iframe id="vnc-frame" src="${url}" style="width:100%;height:100%;border:none;"></iframe>`;
         }
 
-        function updateIndicator(elem,stat) {
-            if(stat) {
-                elem.classList.remove('stopped')
-                elem.classList.add('running')
-            } else {
-                elem.classList.remove('running')
-                elem.classList.add('stopped')
-            }
-        }
-        function updateStatus() {
-            fetch('/api/status')
-                .then(response => {
-                    if (!response.ok) {
-                        clearInterval(statusInterval);
-                        throw new Error('Status check failed');
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    const srv = data.sv;
-                    const vnc_port = Number.isInteger(data.vnc) && data.vnc>0 ? data.vnc : 0;
-                    const ws_port = Number.isInteger(data.ws) && data.ws>0 ? data.ws : 0;
-                    const br_port = Number.isInteger(data.br) && data.br>0 ? data.br : 0;
-                    updateIndicator(vncStatus,vnc_port>0);
-                    vncStatus.innerText = vnc_port>0 ? 'Xvnc:'+vnc_port : 'Xvnc'
-                    updateIndicator(wsStatus,ws_port>0);
-                    updateIndicator(chromeStatus,br_port>0);
-                    if(vnc_port>0 && ws_port>0 && br_port>0 ) {
-                        if(isBrowserRunning!=2) {
-                            isBrowserRunning=2;
-                            startVNC(srv,ws_port)
-                        }
-                    } else {
-                        if(isBrowserRunning==2) {
-                            stopVNC();
-                        }
-                        if( vnc_port>0 || ws_port>0 || br_port>0 ) {
-                            isBrowserRunning = 1;
-                            toggleBtn.textContent = '停止';
-                        } else {
-                            isBrowserRunning = 0;
-                            toggleBtn.textContent = '起動';
-                        }
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                });
-        }
-
-        updateStatus();
-
-
-
-        document.getElementById('browser-btn').addEventListener('click', () => {
-
-            const endpoint = isBrowserRunning>0 ? '/api/stop' : '/api/start';            
-            fetch(endpoint, { method: 'POST' })
+        toggleBtn.addEventListener('click', () => {
+            toggleBtn.disabled=true;
+            const endpoint = isBrowserRunning>0 ? '/api/browser_stop' : '/api/browser_start';            
+            fetch(endpoint, { method: 'POST', headers: {'X-session-ID': session_id }})
                 .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        updateStatus();
-                    } else {
-                        alert('エラー: ' + data.message);
-                    }
-                })
+                .then(data => xx_update_status(data))
                 .catch(error => {
                     console.error('エラー:', error);
                     alert('エラーが発生しました');
@@ -137,7 +170,7 @@
             if (!isTaskRunning) {
                 startTask();
             } else {
-                cancelTask();
+                stopTask();
             }
         });
 
@@ -145,66 +178,25 @@
         async function startTask() {
             const task = taskInput.value.trim();
             if (!task) return;
-
-            try {
-                const response = await fetch('/api/execute', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ task: task })
+            fetch('/api/task_start', { method: 'POST', headers: {'Content-Type': 'application/json', 'X-session-ID': session_id}, body: JSON.stringify({ task: task }) } )
+                .then(response => response.json())
+                .then(data => xx_update_status(data))
+                .catch(error => {
+                    console.error('エラー:', error);
+                    logPrint('エラーが発生しました');
                 });
-
-                if (response.ok) {
-                    isTaskRunning = true;
-                    executeTaskBtn.textContent = 'タスクキャンセル';
-                    executeTaskBtn.classList.add('cancel');
-                    executeTaskBtn.disabled = false;
-                    
-                    // SSE接続開始
-                    eventSource = new EventSource('/api/task_progress');
-                    eventSource.onmessage = (event) => {
-                        logOutput.value += event.data + '\n';
-                        logOutput.scrollTop = logOutput.scrollHeight;
-                    };
-                    eventSource.onerror = () => {
-                        closeEventSource();
-                        resetTaskState();
-                    };
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                logOutput.value += 'エラーが発生しました\n';
-                resetTaskState();
-            }
         }
 
         // タスクキャンセル
-        async function cancelTask() {
-            try {
-                await fetch('/api/cancel_task', { method: 'POST' });
-                closeEventSource();
-                resetTaskState();
-            } catch (error) {
-                console.error('Error:', error);
-                logOutput.value += 'タスクのキャンセルに失敗しました\n';
-            }
+        async function stopTask() {
+            fetch('/api/task_stop', { method: 'POST', headers: {'X-session-ID': session_id }})
+                .then(response => response.json())
+                .then(data => xx_update_status(data))
+                .catch(error => {
+                    console.error('エラー:', error);
+                    logPrint('エラーが発生しました');
+                });
         }
-
-        // EventSourceのクローズ
-        function closeEventSource() {
-            if (eventSource) {
-                eventSource.close();
-                eventSource = null;
-            }
-        }
-
-        // タスク状態のリセット
-        function resetTaskState() {
-            isTaskRunning = false;
-            executeTaskBtn.textContent = 'タスク実行';
-            executeTaskBtn.classList.remove('cancel');
-            executeTaskBtn.disabled = taskInput.value.trim() === '';
-        }
-
     </script>
 </body>
 </html>
