@@ -100,9 +100,10 @@ async def service_api(api):
         elif api=='task_start':
             data = request.get_json()
             task = data.get('task', '')
+            expand:bool = data.get('expand','') == 'true'
             msg = None
             if task:
-                await ses.start_task(task)
+                await ses.start_task(task,expand)
             else:
                 msg = 'タスクが指定されていません'
             res = ses.get_status()

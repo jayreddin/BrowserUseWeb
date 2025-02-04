@@ -19,9 +19,9 @@ os.environ["ANONYMIZED_TELEMETRY"] = "false"
 
 class XAgent(Agent):
 
-    def __init__(self, *, task,llm,page_extraction_llm,browser,controller,use_vision:bool=False,writer:Callable[[str],None]|None=None,generate_gif:bool|str=False, save_conversation_path:str|None=None):
+    def __init__(self, *, task,llm,page_extraction_llm,browser,browser_context, controller,use_vision:bool=False,writer:Callable[[str],None]|None=None,generate_gif:bool|str=False, save_conversation_path:str|None=None):
         super().__init__(
-            task=task,llm=llm, page_extraction_llm=page_extraction_llm,browser=browser, controller=controller, use_vision=use_vision,
+            task=task,llm=llm, page_extraction_llm=page_extraction_llm,browser=browser,browser_context=browser_context, controller=controller, use_vision=use_vision,
             generate_gif=generate_gif, save_conversation_path=save_conversation_path,
         )
         self._writer:Callable[[str],None]|None = writer
@@ -68,6 +68,7 @@ class BwTask:
             raise ValueError("")
 
         self._browser:Browser = Browser( config )
+        self._browser_context:BrowserContext = BrowserContext( self._browser)
         self._agent:XAgent|None = None
 
     def logPrint(self,msg):
@@ -76,24 +77,31 @@ class BwTask:
         else:
             logger.info(msg)
 
-    async def start(self,task:str):
+    async def start(self,task:str,expand:bool):
 
         now = datetime.now()
         now_datetime = now.strftime("%A, %Y-%m-%d %H:%M")
-        pre_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
-        pre_prompt = [
-            "現在時刻:{now_datetime}",
-            "ブラウザを使って以下のタスクを実行する前に、どのような情報をブラウザで収集すべきか、実行プランを考えて、目的、目標、手順、ゴールを出力して。",
-            "---与えられたタスク---",
-            "```",
-            task,
-            "```",
-        ]
-        pre_result:BaseMessage = await pre_llm.ainvoke( "\n".join(pre_prompt))
+
+        self.logPrint("")
+        self.logPrint("-------------------------------------")
+        self.logPrint(f"実行開始: {now_datetime}")
+        self.logPrint("-------------------------------------")
+
         plan:str|None = None
-        if isinstance(pre_result.content,str):
-            plan = pre_result.content
-            self.logPrint(plan)
+        if expand:
+            pre_llm = ChatOpenAI(model="gpt-4o", temperature=0.0)
+            pre_prompt = [
+                "現在時刻:{now_datetime}",
+                "ブラウザを使って以下のタスクを実行するために、目的、ブラウザで収集すべき情報、手順、ゴールを考えて、簡潔で短い文章で実行プランを出力して。",
+                "---与えられたタスク---",
+                "```",
+                task,
+                "```",
+            ]
+            pre_result:BaseMessage = await pre_llm.ainvoke( "\n".join(pre_prompt))
+            if isinstance(pre_result.content,str):
+                plan = pre_result.content
+                self.logPrint(plan)
 
         web_task = f"# 現在時刻: {now_datetime}\n\n# 与えられたタスク:\n{task}"
         if plan is not None:
@@ -111,17 +119,19 @@ class BwTask:
             use_vision=False,
             controller=wcnt,
             browser=self._browser,
+            browser_context=self._browser_context,
             writer=self._writer
         )
         result: AgentHistoryList = await self._agent.run()
         final_str = result.final_result()
 
         #---------------------------------
+        post_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
         report_task = f"# 現在時刻: {now_datetime}\n\n# 与えられたタスク:\n{task}"
         if plan is not None:
             report_task += f"\n\n# 実行プラン:\n{plan}"
         report_task += f"\n\n# 実行結果\n{final_str}\n\n# 上記の結果を日本語でレポートしてください。"
-        post_result:BaseMessage = await pre_llm.ainvoke( report_task )
+        post_result:BaseMessage = await post_llm.ainvoke( report_task )
         if isinstance(post_result.content,str):
             report = post_result.content
         else:
@@ -141,7 +151,7 @@ async def main():
     #task="192.168.1.200にmaeda/maeda0501でログインして、通常モードに切り替えて、会議室予約に、「1/30 テストですよ 参加者前田」を追加する。"
     #task="Amazonで、格安の2.5inch HDDを探して製品URLをリストアップしてください。"
     session = BwTask(cdp_port=9222)
-    await session.start(task)
+    await session.start(task,True)
     await session.stop()
 
 if __name__ == "__main__":

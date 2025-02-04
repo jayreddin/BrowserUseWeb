@@ -83,6 +83,7 @@ class BwSession:
         self.ws_port:int = 0
         self.cdp_port:int = 0
         # タスク管理用の属性を追加
+        self._task_expand:bool = False
         self.task_running:bool = False
         self.task:BwTask|None = None
         self.message_queue: Queue = Queue()
@@ -201,7 +202,14 @@ class BwSession:
             cdp_port = find_cdn_port()
             prof = f"{self.WorkDir}/.config/google-chrome/Default"
             os.makedirs(prof,exist_ok=True)
-            chrome_cmd=["/opt/google/chrome/google-chrome", "--start-maximized", "--no-first-run", "--disable-sync", "--no-default-browser-check","--password-store=basic", "--disable-gpu", f"--remote-debugging-port={cdp_port}" ]
+            chrome_cmd=["/opt/google/chrome/google-chrome",
+                "--start-maximized", "--no-first-run", "--disable-sync", "--no-default-browser-check","--password-store=basic",
+                "--disable-extensions",
+                "--disable-metrics", "--disable-metrics-reporting",
+                "--disable-gpu", "--disable-vulkan", "--disable-accelerated-layers", "--enable-unsafe-swiftshader",
+                f"--remote-debugging-port={cdp_port}"
+            ]
+            # "--disable-popup-blocking",
             orig_home = os.environ['HOME']
             env = os.environ.copy()
             env["DISPLAY"] = f":{self.display_num}"
@@ -210,9 +218,9 @@ class BwSession:
                 env["HOME"]=self.WorkDir
                 chrome_process = subprocess.Popen( chrome_cmd, cwd=self.WorkDir, env=env )
             else:
-                bcmd = [ "bwrap", "--bind", "/", "/", "--dev", "/dev", "--bind", self.WorkDir, orig_home ]
+                bcmd = [ "bwrap", "--bind", "/", "/", "--dev", "/dev", "--bind", self.WorkDir, orig_home, "--chdir", orig_home ]
                 bcmd.extend(chrome_cmd)
-                chrome_process = subprocess.Popen( bcmd, cwd=orig_home, env=env )
+                chrome_process = subprocess.Popen( bcmd, cwd=self.WorkDir, env=env )
             await self.wait_port(chrome_process,cdp_port,30.0)
             if chrome_process.poll() is not None:
                 raise CanNotStartException("google-chromeが起動できませんでした")
@@ -234,25 +242,25 @@ class BwSession:
             logger.exception(f"[{self.session_id}] {str(ex)}")
         return self.get_status()
 
-    async def start_task(self, task_info: str) -> None:
+    async def start_task(self, task_info: str, expand:bool) -> None:
         """タスクを開始"""
         self.touch()
         if self.task is not None or self.task_running:
             raise RuntimeError("タスクが既に実行中です")
         else:
             self.task_running = True
-            self.current_task = self.Pool.submit(self._start_task,task_info)
+            self.current_task = self.Pool.submit(self._start_task,task_info,expand)
 
-    def _start_task(self, task_info: str ) ->None:
-        asyncio.run(self._run_task(task_info))
+    def _start_task(self, task_info: str, expand:bool ) ->None:
+        asyncio.run(self._run_task(task_info,expand))
 
-    async def _run_task(self, prompt: str ) ->None:
+    async def _run_task(self, prompt: str , expand:bool) ->None:
         try:
             self.touch()
             await self.setup_vnc_server()
             await self.launch_chrome()
             self.task = BwTask( cdp_port=self.cdp_port,writer=self._write_msg)
-            await self.task.start(prompt)
+            await self.task.start(prompt,expand)
             await self.task.stop()
         except CanNotStartException as ex:
             logger.warning(f"[{self.session_id}] {str(ex)}")
