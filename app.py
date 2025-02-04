@@ -15,10 +15,10 @@ from logging import Logger,getLogger
 logger:Logger = getLogger(__name__)
 
 Pool:ThreadPoolExecutor = ThreadPoolExecutor(20)
-TempHome="./tmp/home"
-novncdir="libs/noVNC-1.5.0"
+SessionsDir="./tmp/sessions"
+novncdir="third_party/noVNC-1.5.0"
 
-session_store = SessionStore( TempHome=TempHome, novncdir=novncdir, Pool=Pool )
+session_store = SessionStore( dir=SessionsDir, Pool=Pool )
 
 def cleanup_sessions():
     print("### CLEANUP SESSIONS ###")

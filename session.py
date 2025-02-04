@@ -67,13 +67,12 @@ async def stop_proc( proc:subprocess.Popen|None ):
             pass
 
 class BwSession:
-    def __init__(self,session_id:str, server_addr:str, client_addr:str|None, *, workdir:str, novncdir:str, Pool:ThreadPoolExecutor):
+    def __init__(self,session_id:str, server_addr:str, client_addr:str|None, *, dir:str, Pool:ThreadPoolExecutor):
         self.session_id:str = session_id
         self.server_addr:str = server_addr
         self.client_addr:str|None = client_addr
         self.last_access:datetime = datetime.now()
-        self.TempHome:str = workdir
-        self.novncdir:str = novncdir
+        self.WorkDir:str = dir
         self.Pool:ThreadPoolExecutor = Pool
         self.geometry = "1024x1024"
         self.vnc_proc:subprocess.Popen|None = None
@@ -82,8 +81,7 @@ class BwSession:
         self.display_num:int = 0
         self.vnc_port:int = 0
         self.ws_port:int = 0
-        self.cdn_port:int = 0
-        self.workdir = workdir
+        self.cdp_port:int = 0
         # タスク管理用の属性を追加
         self.task_running:bool = False
         self.task:BwTask|None = None
@@ -104,7 +102,7 @@ class BwSession:
         return self.ws_port if self.ws_port>0 and is_proc(self.websockify_proc) else 0
 
     def is_chrome_running(self) -> int:
-        return self.cdn_port if self.cdn_port>0 and is_proc(self.chrome_process) else 0
+        return self.cdp_port if self.cdp_port>0 and is_proc(self.chrome_process) else 0
 
     def is_ready(self) -> bool:
         return self.is_vnc_running()>0 and self.is_websockify_running()>0 and self.is_chrome_running()>0
@@ -127,9 +125,9 @@ class BwSession:
         }
         return res
 
-    async def wait_port(self,port:int, timeout_sec:float):
+    async def wait_port(self,proc:subprocess.Popen, port:int, timeout_sec:float):
         exit_sec:float = time.time() + timeout_sec
-        while not is_port_available(port):
+        while not is_port_available(port) and is_proc(proc):
             self.touch()
             if time.time()>exit_sec:
                 raise CanNotStartException(f"ポート番号{port}が有効になりませんでした")
@@ -163,7 +161,7 @@ class BwSession:
                 "-rfbport", str(vnc_port)
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             # VNCサーバーの起動を待つ
-            await self.wait_port(vnc_port,2.0)
+            await self.wait_port( vnc_proc, vnc_port, 10.0)
             if vnc_proc.poll() is not None:
                 raise CanNotStartException("Xvncが起動できませんでした")
 
@@ -171,13 +169,12 @@ class BwSession:
             ws_port = find_ws_port()
             ws_proc = subprocess.Popen([
                 "websockify",
-                "--web", os.path.abspath(self.novncdir),
                 "--heartbeat", "30",
                 f"0.0.0.0:{ws_port}",
                 f"localhost:{vnc_port}"
             ])
             # websockifyの起動を待つ
-            await self.wait_port(ws_port,2.0)
+            await self.wait_port(ws_proc,ws_port,10.0)
             if ws_proc.poll() is not None:
                 raise CanNotStartException("websockifyが起動できませんでした")
             
@@ -198,29 +195,29 @@ class BwSession:
         if is_proc( self.chrome_process ):
             return
         self.chrome_process = None
-        self.cdn_port = 0
+        self.cdp_port = 0
         chrome_process:subprocess.Popen|None = None
         try:
-            cdn_port = find_cdn_port()
-            prof = f"{self.workdir}/.config/google-chrome/Default"
+            cdp_port = find_cdn_port()
+            prof = f"{self.WorkDir}/.config/google-chrome/Default"
             os.makedirs(prof,exist_ok=True)
-            chrome_cmd=["/opt/google/chrome/google-chrome", "--start-maximized", "--no-first-run", "--disable-sync", "--no-default-browser-check","--password-store=basic", "--disable-gpu", f"--remote-debugging-port={cdn_port}" ]
+            chrome_cmd=["/opt/google/chrome/google-chrome", "--start-maximized", "--no-first-run", "--disable-sync", "--no-default-browser-check","--password-store=basic", "--disable-gpu", f"--remote-debugging-port={cdp_port}" ]
             orig_home = os.environ['HOME']
             env = os.environ.copy()
             env["DISPLAY"] = f":{self.display_num}"
-            sw = 0
+            sw = 1
             if sw==0:
-                env["HOME"]=self.workdir
-                chrome_process = subprocess.Popen( chrome_cmd, cwd=self.workdir, env=env )
+                env["HOME"]=self.WorkDir
+                chrome_process = subprocess.Popen( chrome_cmd, cwd=self.WorkDir, env=env )
             else:
-                bcmd = [ "bwrap", "--bind", "/", "/", "--dev", "/dev", "--bind", self.workdir, orig_home ]
+                bcmd = [ "bwrap", "--bind", "/", "/", "--dev", "/dev", "--bind", self.WorkDir, orig_home ]
                 bcmd.extend(chrome_cmd)
                 chrome_process = subprocess.Popen( bcmd, cwd=orig_home, env=env )
-            await self.wait_port(cdn_port,2.0)
+            await self.wait_port(chrome_process,cdp_port,30.0)
             if chrome_process.poll() is not None:
                 raise CanNotStartException("google-chromeが起動できませんでした")
             self.chrome_process = chrome_process
-            self.cdn_port = cdn_port
+            self.cdp_port = cdp_port
         except Exception as ex:
             await stop_proc(chrome_process)
             raise ex
@@ -254,7 +251,7 @@ class BwSession:
             self.touch()
             await self.setup_vnc_server()
             await self.launch_chrome()
-            self.task = BwTask(self.cdn_port,self._write_msg)
+            self.task = BwTask( cdp_port=self.cdp_port,writer=self._write_msg)
             await self.task.start(prompt)
             await self.task.stop()
         except CanNotStartException as ex:
@@ -288,7 +285,7 @@ class BwSession:
             
             await stop_proc( self.chrome_process )
             self.chrome_process = None
-            self.cdn_port = 0
+            self.cdp_port = 0
 
             await stop_proc( self.websockify_proc )
             self.websockify_proc = None
@@ -314,17 +311,16 @@ class BwSession:
         """リソースをクリーンアップ"""
         await self.stop_browser()
         try:
-            shutil.rmtree(self.workdir)
+            shutil.rmtree(self.WorkDir)
         except Exception as e:
             logger.exception(f"[{self.session_id}] VNCサーバー停止中にエラーが発生: {str(e)}")
 
 # セッションデータを保存する辞書
 class SessionStore:
-    def __init__(self, max_sessions:int=3, *, TempHome:str="tmp/home", novncdir:str="libs/noVNC-1.5.0", Pool:ThreadPoolExecutor|None=None):
+    def __init__(self, *, max_sessions:int=3, dir:str="tmp/sessions", Pool:ThreadPoolExecutor|None=None):
         self._max_sessions:int = max_sessions
         self.sessions: dict[str, BwSession] = {}
-        self.TempHome:str = TempHome
-        self.novncdir:str = novncdir
+        self.SessionsDir:str = os.path.abspath(dir)
         self.Pool:ThreadPoolExecutor = Pool if isinstance(Pool,ThreadPoolExecutor) else ThreadPoolExecutor()
         self.cleanup_interval:timedelta = timedelta(minutes=30)
         self.session_timeout:timedelta = timedelta(hours=2)
@@ -384,10 +380,10 @@ class SessionStore:
             session_id = session_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
             if session_id not in self.sessions:
                 break
-        workdir = os.path.join( self.TempHome, f"session_{session_id}")
+        workdir = os.path.join( self.SessionsDir, f"session_{session_id}")
         logger.info(f"[{session_id}] create session")
         os.makedirs(workdir,exist_ok=False)
-        session = BwSession(session_id, server_addr=server_addr, client_addr=client_addr, workdir=workdir, novncdir=self.novncdir, Pool=self.Pool)
+        session = BwSession(session_id, server_addr=server_addr, client_addr=client_addr, dir=workdir, Pool=self.Pool)
         self.sessions[session_id] = session
         await self._start_sweeper()
         return session

@@ -81,6 +81,15 @@ firewall-cmd --add-port=5000/tcp # flaskサーバ用
 firewall-cmd --add-port=5030:5099/tcp # websock用
 ```
 
+7.
+
+ubuntu 24.04の場合、以下の設定が必要
+
+```bash
+sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0
+sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+```
+
 ## 使用方法
 
 1. アプリケーション起動：
