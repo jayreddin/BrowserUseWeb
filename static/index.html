@@ -26,6 +26,7 @@
 
     <script>
         let session_id = null;
+        let isVncRunning = false;
         let isBrowserRunning = 0;
         let isTaskRunning = true;
         const taskInput = document.getElementById('task-input');
@@ -81,24 +82,25 @@
                 vncStatus.innerText = vnc_port>0 ? 'Xvnc:'+vnc_port : 'Xvnc'
                 updateIndicator(wsStatus,ws_port>0);
                 updateIndicator(chromeStatus,br_port>0);
-                if(vnc_port>0 && ws_port>0 && br_port>0 ) {
-                    if(isBrowserRunning!=2) {
-                        isBrowserRunning=2;
+                if(vnc_port>0 && ws_port>0 ) {
+                    if(!isVncRunning) {
+                        isVncRunning = true;
                         startVNC(srv,ws_port)
                     }
                 } else {
-                    if(isBrowserRunning==2) {
+                    if(isVncRunning) {
+                        isVncRunning = false;
                         stopVNC();
                     }
-                    if( vnc_port>0 || ws_port>0 || br_port>0 ) {
-                        isBrowserRunning = 1;
-                        toggleBtn.textContent = '停止';
-                    } else {
-                        isBrowserRunning = 0;
-                        toggleBtn.textContent = '起動';
-                    }
-                    toggleBtn.disabled = !session_id;
                 }
+                if( vnc_port>0 || ws_port>0 || br_port>0 ) {
+                    isBrowserRunning = 1;
+                    toggleBtn.textContent = '停止';
+                } else {
+                    isBrowserRunning = 0;
+                    toggleBtn.textContent = '起動';
+                }
+                toggleBtn.disabled = !session_id;
                 if( isTaskRunning != is_task ) {
                     isTaskRunning = is_task;
                     if( is_task ) {
