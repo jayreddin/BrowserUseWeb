@@ -4,6 +4,7 @@ import time
 from queue import Queue
 from concurrent.futures import ThreadPoolExecutor, Future
 import asyncio
+import aiohttp
 import random,string
 from browser_task import BwTask
 from logging import Logger,getLogger
@@ -11,6 +12,8 @@ logger:Logger = getLogger(__name__)
 
 class CanNotStartException(Exception):
     pass
+
+HOSTSFILE:str = 'hosts.adblock'
 
 def is_port_available(port: int) -> bool:
     """指定されたポートが使用可能かチェック"""
@@ -66,15 +69,42 @@ async def stop_proc( proc:subprocess.Popen|None ):
         except:
             pass
 
+async def download_hosts_file_async(save_path: str):
+    url = "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+    timeout = aiohttp.ClientTimeout(total=10)  # 正しい ClientTimeout の設定
+
+    try:
+        content:bytes|None = None
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=timeout) as response:
+                if response.status != 200:
+                    print(f"`hosts` ファイルのダウンロードに失敗しました: HTTP {response.status}")
+                    return
+                # ファイルを非同期で保存
+                content = await response.read()
+        if content is not None:
+            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                temp_file.write(content)
+                if os.path.exists(save_path):
+                    os.replace(temp_file.name, save_path)  # 上書き
+                    print(f"`hosts` ファイルを上書きしました: {save_path}")
+                else:
+                    shutil.move(temp_file.name, save_path)  # 新規移動
+                    print(f"`hosts` ファイルを移動しました: {save_path}")
+
+    except Exception as e:
+        print(f"`hosts` ファイルのダウンロード中にエラーが発生しました: {e}")
+
 class BwSession:
-    def __init__(self,session_id:str, server_addr:str, client_addr:str|None, *, dir:str, Pool:ThreadPoolExecutor):
+    def __init__(self,session_id:str, server_addr:str, client_addr:str|None, *, dir:str, hostsfile:str, Pool:ThreadPoolExecutor):
         self.session_id:str = session_id
         self.server_addr:str = server_addr
         self.client_addr:str|None = client_addr
         self.last_access:datetime = datetime.now()
         self.WorkDir:str = dir
+        self.hostsfile:str = hostsfile
         self.Pool:ThreadPoolExecutor = Pool
-        self.geometry = "1024x1024"
+        self.geometry = "1366x768"
         self.vnc_proc:subprocess.Popen|None = None
         self.websockify_proc:subprocess.Popen|None = None
         self.chrome_process:subprocess.Popen|None = None
@@ -219,6 +249,8 @@ class BwSession:
                 chrome_process = subprocess.Popen( chrome_cmd, cwd=self.WorkDir, env=env )
             else:
                 bcmd = [ "bwrap", "--bind", "/", "/", "--dev", "/dev", "--bind", self.WorkDir, orig_home, "--chdir", orig_home ]
+                if os.path.exists(self.hostsfile):
+                    bcmd.extend( ["--bind",self.hostsfile,"/etc/hosts"])
                 bcmd.extend(chrome_cmd)
                 chrome_process = subprocess.Popen( bcmd, cwd=self.WorkDir, env=env )
             await self.wait_port(chrome_process,cdp_port,30.0)
@@ -329,6 +361,7 @@ class SessionStore:
         self._max_sessions:int = max_sessions
         self.sessions: dict[str, BwSession] = {}
         self.SessionsDir:str = os.path.abspath(dir)
+        self.hostsfile:str = os.path.join(self.SessionsDir,'hosts.adblock')
         self.Pool:ThreadPoolExecutor = Pool if isinstance(Pool,ThreadPoolExecutor) else ThreadPoolExecutor()
         self.cleanup_interval:timedelta = timedelta(minutes=30)
         self.session_timeout:timedelta = timedelta(hours=2)
@@ -343,6 +376,12 @@ class SessionStore:
         try:
             logger.info("start swepper")
             while True:
+                # 広告ブロック用のhostsファイルを更新する
+                now = time.time()
+                last_mod_sec:float = os.path.getmtime(self.hostsfile) if os.path.exists(self.hostsfile) else 0.0
+                if (now-last_mod_sec)>3600.0:
+                    asyncio.run( download_hosts_file_async(self.hostsfile) )
+                # セッションをクリーンアップする
                 asyncio.run( self.cleanup_old_sessions() )
                 if len(self.sessions)==0:
                     self._sweeper_futute = None
@@ -391,7 +430,7 @@ class SessionStore:
         workdir = os.path.join( self.SessionsDir, f"session_{session_id}")
         logger.info(f"[{session_id}] create session")
         os.makedirs(workdir,exist_ok=False)
-        session = BwSession(session_id, server_addr=server_addr, client_addr=client_addr, dir=workdir, Pool=self.Pool)
+        session = BwSession(session_id, server_addr=server_addr, client_addr=client_addr, dir=workdir, hostsfile=self.hostsfile, Pool=self.Pool)
         self.sessions[session_id] = session
         await self._start_sweeper()
         return session
