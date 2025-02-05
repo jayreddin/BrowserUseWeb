@@ -8,6 +8,9 @@ from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from langchain_core.messages import BaseMessage
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.caches import BaseCache
+from langchain_core.caches import InMemoryCache
+from langchain_community.cache import SQLiteCache
 import browser_use.controller.service
 from browser_use import ActionModel, Agent, SystemPrompt, Controller,Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext, BrowserContextConfig
@@ -30,18 +33,18 @@ class LLM(Enum):
     Gemini20FlashExp = "gemini-2.0-flash-exp"
     Gemini20FlashThinkExp = "gemini-2.0-flash-thinking-exp-01-21"
 
-def create_model( model:str|LLM,temperature:float=0.0):
+def create_model( model:str|LLM,temperature:float=0.0,cache:BaseCache|None=None) -> BaseChatModel:
     model_name = model.value if isinstance(model,LLM) else str(model)
     if model_name == LLM.Gpt4oMini.value or model_name == LLM.Gpt4o.value or model_name == LLM.O3Mini.value:
         openai_api_key = os.getenv('OPENAI_API_KEY')
         if not openai_api_key:
             raise ValueError('OPENAI_API_KEY is not set')
-        return ChatOpenAI(model=model_name, temperature=temperature)
+        return ChatOpenAI(model=model_name, temperature=temperature, cache=cache)
     elif model_name == LLM.Gemini20FlashExp.value or model_name == LLM.Gemini20FlashThinkExp.value:
         gemini_api_key = os.getenv('GOOGLE_API_KEY')
         if not gemini_api_key:
             raise ValueError('GEMINI_API_KEY is not set')
-        return ChatGoogleGenerativeAI(model=model_name)# ,api_key=SecretStr(gemini_api_key))        
+        return ChatGoogleGenerativeAI(model=model_name,temperature=temperature,cache=cache)# ,api_key=SecretStr(gemini_api_key))        
     else:
         raise ValueError(f"Invalid model name: {model_name}")
 
@@ -152,7 +155,9 @@ class XAgent(Agent):
 
 class BwTask:
 
-    def __init__(self,*, chrome_instance_path:str|None=None, cdp_port:int|None, trace_path:str|None=None, writer:Callable[[str],None]|None=None):
+    def __init__(self,*, dir:str, llm_cache_path:str, chrome_instance_path:str|None=None, cdp_port:int|None, trace_path:str|None=None, writer:Callable[[str],None]|None=None):
+        self._work_dir:str = dir
+        self._llm_cache_path:str = llm_cache_path
         self._writer:Callable[[str],None]|None = writer
         self.cdp_port:int|None = cdp_port
         bw_context_config:BrowserContextConfig = BrowserContextConfig(
@@ -187,6 +192,7 @@ class BwTask:
         now = datetime.now()
         now_datetime = now.strftime("%A, %Y-%m-%d %H:%M")
 
+        llm_cache:BaseCache|None = SQLiteCache(self._llm_cache_path) if self._llm_cache_path else None
         self.logPrint("")
         self.logPrint("-------------------------------------")
         self.logPrint(f"実行開始: {now_datetime}")
@@ -194,7 +200,7 @@ class BwTask:
 
         plan:str|None = None
         if expand:
-            pre_llm = create_model( LLM.Gemini20FlashExp ) # ChatOpenAI(model="gpt-4o", temperature=0.0)
+            pre_llm = create_model( LLM.Gemini20FlashExp, cache=llm_cache ) # ChatOpenAI(model="gpt-4o", temperature=0.0)
             pre_prompt = [
                 "現在時刻:{now_datetime}",
                 "ブラウザを使って以下のタスクを実行するために、目的、ブラウザで収集すべき情報、手順、ゴールを考えて、簡潔で短い文章で実行プランを出力して。",
@@ -216,8 +222,8 @@ class BwTask:
         #---------------------------------
         #br_context = await self.get_browser_context()
         wcnt = BwController()
-        main_llm = create_model(LLM.Gemini20FlashExp) # ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
-        small_llm = create_model(LLM.Gemini20FlashExp) # ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
+        main_llm = create_model(LLM.Gemini20FlashExp, cache=llm_cache) # ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
+        small_llm = create_model(LLM.Gemini20FlashExp, cache=llm_cache) # ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
         self._agent = XAgent(
             task=web_task,
             llm=main_llm, page_extraction_llm=small_llm,
@@ -257,7 +263,10 @@ async def main():
     task="キャトルアイサイエンス株式会社の会社概要をしらべて"
     #task="192.168.1.200にmaeda/maeda0501でログインして、通常モードに切り替えて、会議室予約に、「1/30 テストですよ 参加者前田」を追加する。"
     #task="Amazonで、格安の2.5inch HDDを探して製品URLをリストアップしてください。"
-    session = BwTask(cdp_port=9222)
+    workdir = os.path.abspath("tmp/testrun")
+    os.makedirs(workdir,exist_ok=True)
+    llm_cache_path = os.path.join(workdir,"llm_cache.db")
+    session = BwTask(dir=workdir,llm_cache_path=llm_cache_path,cdp_port=9222)
     await session.start(task,True)
     await session.stop()
 

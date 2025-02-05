@@ -1,4 +1,5 @@
 flask[async]>=3.1.0
 websockify>=0.12.0
 browser-use>=0.1.36
+langchain-community==0.3.14
 python-dotenv>=1.0.1

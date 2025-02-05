@@ -291,7 +291,8 @@ class BwSession:
             self.touch()
             await self.setup_vnc_server()
             await self.launch_chrome()
-            self.task = BwTask( cdp_port=self.cdp_port,writer=self._write_msg)
+            cache_path = f"{self.WorkDir}/llm_cache.db"
+            self.task = BwTask( dir=self.WorkDir,llm_cache_path=cache_path, cdp_port=self.cdp_port,writer=self._write_msg)
             await self.task.start(prompt,expand)
             await self.task.stop()
         except CanNotStartException as ex:

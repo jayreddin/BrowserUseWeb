@@ -105,12 +105,20 @@ async def scroll_page():
         except TimeoutError as ex:
             print(ex)
         
-        await add_cleaner(page)
+        #await add_cleaner(page)
+        content_html = await page.content()
+        os.makedirs("tmp",exist_ok=True)
+        with open("tmp/content_orig.html","w") as f:
+            f.write( content_html )
+        import markdownify
+        content_md = markdownify.markdownify(content_html)
+        with open("tmp/content_orig.md","w") as f:
+            f.write( content_md )
 
         step = 300
         time.sleep( 2.0 )
         for i in range(0,20):
-            await add_cleaner(page)
+            #await add_cleaner(page)
             # 指定したピクセル量だけスクロール
             print(f"scrolling {i} {step} pixels")
             await page.evaluate(f'window.scrollBy(0, {step});')
