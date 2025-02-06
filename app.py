@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os,sys,shutil
+os.environ["ANONYMIZED_TELEMETRY"] = "false"
 import asyncio
 from queue import Empty
 from flask import Flask, jsonify, send_from_directory, Response, request, make_response, abort

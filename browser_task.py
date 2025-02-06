@@ -1,4 +1,5 @@
 import os
+os.environ["ANONYMIZED_TELEMETRY"] = "false"
 from datetime import datetime
 import time
 from langchain_openai import ChatOpenAI
