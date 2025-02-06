@@ -334,6 +334,29 @@ async def main():
     btask = BwTask(dir=workdir,llm=LLM.Gemini20FlashExp)
     await btask.start(task)
     await btask.stop()
+    print("done")
+
+async def test_hilight():
+    """ハイライトが遅いのかを確認するテスト"""
+    workdir = os.path.abspath("tmp/testrun")
+    os.makedirs(workdir,exist_ok=True)
+    btask = BwTask(dir=workdir,llm=LLM.Gemini20FlashExp)
+
+    browser_context = btask._browser_context
+    page = await browser_context.get_current_page()
+    await page.goto("https://www.amazon.co.jp/")
+    await page.wait_for_load_state()
+    # ---
+    session = await browser_context.get_session()
+    cached_selector_map = session.cached_state.selector_map
+    cached_path_hashes = set(e.hash.branch_path_hash for e in cached_selector_map.values())
+    print(cached_path_hashes)
+    # ---
+    new_state = await browser_context.get_state()
+    new_path_hashes = set(e.hash.branch_path_hash for e in new_state.selector_map.values())
+    print(new_path_hashes)
+
+    print("done")
 
 if __name__ == "__main__":
     asyncio.run(main())
