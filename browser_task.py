@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+import time
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import SecretStr
@@ -33,6 +34,13 @@ class LLM(Enum):
     Gemini20FlashExp = "gemini-2.0-flash-exp"
     Gemini20FlashThinkExp = "gemini-2.0-flash-thinking-exp-01-21"
 
+    @staticmethod
+    def get_lite_model(llm:"LLM") -> "LLM":
+        if llm==LLM.Gpt4o or llm==LLM.Gpt4oMini or llm==LLM.O3Mini:
+            return LLM.Gpt4oMini
+        if llm==LLM.Gemini20FlashExp or llm==LLM.Gemini20FlashThinkExp:
+            return LLM.Gemini20FlashExp
+
 def create_model( model:str|LLM,temperature:float=0.0,cache:BaseCache|None=None) -> BaseChatModel:
     model_name = model.value if isinstance(model,LLM) else str(model)
     if model_name == LLM.Gpt4oMini.value or model_name == LLM.Gpt4o.value or model_name == LLM.O3Mini.value:
@@ -41,10 +49,14 @@ def create_model( model:str|LLM,temperature:float=0.0,cache:BaseCache|None=None)
             raise ValueError('OPENAI_API_KEY is not set')
         return ChatOpenAI(model=model_name, temperature=temperature, cache=cache)
     elif model_name == LLM.Gemini20FlashExp.value or model_name == LLM.Gemini20FlashThinkExp.value:
-        gemini_api_key = os.getenv('GOOGLE_API_KEY')
-        if not gemini_api_key:
-            raise ValueError('GEMINI_API_KEY is not set')
-        return ChatGoogleGenerativeAI(model=model_name,temperature=temperature,cache=cache)# ,api_key=SecretStr(gemini_api_key))        
+        kw = None
+        if os.getenv('GEMINI_API_KEY') is not None:
+            kw = SecretStr(os.getenv('GEMINI_API_KEY')) # type: ignore
+        elif os.getenv('GOOGLE_API_KEY') is not None:
+            kw = SecretStr(os.getenv('GOOGLE_API_KEY')) # type: ignore
+        if kw is None:
+            raise ValueError('GEMINI_API_KEY or GOOGLE_API_KEY is not set')
+        return ChatGoogleGenerativeAI(model=model_name,temperature=temperature,cache=cache, api_key=kw)        
     else:
         raise ValueError(f"Invalid model name: {model_name}")
 
@@ -109,6 +121,31 @@ class BwController(Controller):
                 extracted_content=msg,
                 include_in_memory=True,
             )
+        # @self.registry.action(
+		# 	'Extract page content to retrieve specific information from the page, e.g. all company names, a specifc description, all information about, links with companies in structured format or simply links',
+		# )
+        # async def extract_content(goal: str, browser: BrowserContext, page_extraction_llm: BaseChatModel):
+        #     t0 = time.time()
+        #     page = await browser.get_current_page()
+        #     t1 = time.time()
+        #     import markdownify
+        #     t2 = time.time()
+        #     content = markdownify.markdownify(await page.content())
+        #     t3 = time.time()
+        #     prompt = 'Your task is to extract the content of the page. You will be given a page and a goal and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format. Extraction goal: {goal}, Page: {page}'
+        #     template = PromptTemplate(input_variables=['goal', 'page'], template=prompt)
+        #     try:
+        #         output = page_extraction_llm.invoke(template.format(goal=goal, page=content))
+        #         t4 = time.time()
+        #         print(f"### TIME get:{t1-t0}, import:{t2-t1}, markdownify:{t3-t2}, extraction:{t4-t3}")
+        #         msg = f'📄  Extracted from page\n: {output.content}\n'
+        #         logger.info(msg)
+        #         return ActionResult(extracted_content=msg, include_in_memory=True)
+        #     except Exception as e:
+        #         logger.debug(f'Error extracting content: {e}')
+        #         msg = f'📄  Extracted from page\n: {content}\n'
+        #         logger.info(msg)
+        #         return ActionResult(extracted_content=msg)
 
     async def act(
 		self,
@@ -122,14 +159,15 @@ class BwController(Controller):
 class XAgent(Agent):
 
     def __init__(self, *, task,
-                 llm,page_extraction_llm=None,planner_llm=None,
+                 llm,page_extraction_llm=None,planner_llm=None,planner_interval:int=1,
                  browser,browser_context=None,
                  controller,
                  use_vision:bool=False,
                  writer:Callable[[str],None]|None=None,generate_gif:bool|str=False, save_conversation_path:str|None=None):
         super().__init__(
-            task=task,llm=llm, page_extraction_llm=page_extraction_llm, planner_llm=planner_llm,
-            browser=browser,browser_context=browser_context, controller=controller, use_vision=use_vision,
+            task=task,llm=llm, page_extraction_llm=page_extraction_llm, planner_llm=planner_llm, planner_interval=planner_interval,
+            browser=browser,browser_context=browser_context, controller=controller,
+            use_vision=use_vision, use_vision_for_planner=use_vision,
             generate_gif=generate_gif, save_conversation_path=save_conversation_path,
         )
         self._writer:Callable[[str],None]|None = writer
@@ -155,9 +193,16 @@ class XAgent(Agent):
 
 class BwTask:
 
-    def __init__(self,*, dir:str, llm_cache_path:str, chrome_instance_path:str|None=None, cdp_port:int|None, trace_path:str|None=None, writer:Callable[[str],None]|None=None):
+    def __init__(self,*, dir:str,
+                llm_cache:BaseCache|None=None, llm:LLM=LLM.Gpt4oMini, plan_llm:LLM|None=None,
+                chrome_instance_path:str|None=None, cdp_port:int|None=None, trace_path:str|None=None,
+                writer:Callable[[str],None]|None=None):
         self._work_dir:str = dir
-        self._llm_cache_path:str = llm_cache_path
+        if llm_cache is None:
+            llm_cache = SQLiteCache( os.path.join(dir,'langchain_cache.db') )
+        self._operator_llm:LLM = llm
+        self._plan_llm:LLM|None = plan_llm
+        self._llm_cache:BaseCache = llm_cache
         self._writer:Callable[[str],None]|None = writer
         self.cdp_port:int|None = cdp_port
         bw_context_config:BrowserContextConfig = BrowserContextConfig(
@@ -169,13 +214,18 @@ class BwTask:
             bw_config = BrowserConfig(
                 cdp_url=f"http://127.0.0.1:{cdp_port}"
             )
-        elif isinstance(chrome_instance_path,str) and os.path.exists(chrome_instance_path):
+        else:
+            p = None
+            for p in [ chrome_instance_path, "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/usr/bin/google-chrome", "/opt/google/chrome/google-chrome" ]:
+                if p and os.path.exists( p ):
+                    chrome_instance_path = p
+                    break
+            if p is None:
+                raise ValueError("")
             bw_config = BrowserConfig(
-                chrome_instance_path=chrome_instance_path,
+                #chrome_instance_path=chrome_instance_path,
                 #extra_chromium_args=[str(self.display_number)],
             )
-        else:
-            raise ValueError("")
 
         self._browser:Browser = Browser( bw_config )
         self._browser_context:BrowserContext = BrowserContext( self._browser, bw_context_config)
@@ -187,20 +237,27 @@ class BwTask:
         else:
             logger.info(msg)
 
-    async def start(self,task:str,expand:bool):
+    async def start(self,task:str):
 
         now = datetime.now()
         now_datetime = now.strftime("%A, %Y-%m-%d %H:%M")
 
-        llm_cache:BaseCache|None = SQLiteCache(self._llm_cache_path) if self._llm_cache_path else None
+        x_extractor = LLM.get_lite_model(self._operator_llm)
+        x_planner:str = self._plan_llm.value if self._plan_llm is not None else "None"
         self.logPrint("")
         self.logPrint("-------------------------------------")
         self.logPrint(f"実行開始: {now_datetime}")
         self.logPrint("-------------------------------------")
+        self.logPrint(f"operator:{self._operator_llm.value}")
+        self.logPrint(f"extractor:{x_extractor.value}")
+        self.logPrint(f"planner:{x_planner}")
+        llm_cache:BaseCache = self._llm_cache
+        operator_llm:BaseChatModel = create_model(self._operator_llm, cache=llm_cache)
+        extraction_llm:BaseChatModel = create_model(x_extractor, cache=llm_cache)
+        planner_llm:BaseChatModel|None = create_model(self._plan_llm, cache=llm_cache) if self._plan_llm is not None else None
 
-        plan:str|None = None
-        if expand:
-            pre_llm = create_model( LLM.Gemini20FlashExp, cache=llm_cache ) # ChatOpenAI(model="gpt-4o", temperature=0.0)
+        plan_text:str|None = None
+        if planner_llm is not None:
             pre_prompt = [
                 "現在時刻:{now_datetime}",
                 "ブラウザを使って以下のタスクを実行するために、目的、ブラウザで収集すべき情報、手順、ゴールを考えて、簡潔で短い文章で実行プランを出力して。",
@@ -209,46 +266,54 @@ class BwTask:
                 task,
                 "```",
             ]
-            pre_result:BaseMessage = await pre_llm.ainvoke( "\n".join(pre_prompt))
+            pre_result:BaseMessage = await planner_llm.ainvoke( "\n".join(pre_prompt))
             if isinstance(pre_result.content,str):
-                plan = pre_result.content
-                self.logPrint(plan)
+                plan_text = pre_result.content
+                self.logPrint(plan_text)
 
         web_task = f"# 現在時刻: {now_datetime}\n\n# 与えられたタスク:\n{task}"
-        if plan is not None:
-            web_task += f"\n\n実行プラン:\n{plan}"
+        if plan_text is not None:
+            web_task += f"\n\n実行プラン:\n{plan_text}"
         web_task += f"\n\n# 作業手順\n与えられたタスクと設定したゴールを満たしたか考えながら実行プランにそって実行して下さい。必要に応じて前の作業にもどったりプランを修正することも可能です。"
 
         #---------------------------------
         #br_context = await self.get_browser_context()
         wcnt = BwController()
-        main_llm = create_model(LLM.Gemini20FlashExp, cache=llm_cache) # ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
-        small_llm = create_model(LLM.Gemini20FlashExp, cache=llm_cache) # ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
-        self._agent = XAgent(
-            task=web_task,
-            llm=main_llm, page_extraction_llm=small_llm,
-            use_vision=False,
-            controller=wcnt,
-            browser=self._browser,
-            browser_context=self._browser_context,
-            writer=self._writer
-        )
-        result: AgentHistoryList = await self._agent.run()
-        final_str = result.final_result()
+
+        final_str:str|None = None
+        try:
+            self._agent = XAgent(
+                task=web_task,
+                llm=operator_llm, page_extraction_llm=extraction_llm, planner_llm=planner_llm, planner_interval=1,
+                use_vision=False,
+                controller=wcnt,
+                browser=self._browser,
+                browser_context=self._browser_context,
+                writer=self._writer
+            )
+            result: AgentHistoryList = await self._agent.run()
+            if result.is_done():
+                final_str = result.final_result()
+        except Exception as ex:
+            self.logPrint("")
+            self.logPrint(f"停止しました {str(ex)}")
+        finally:
+            self._agent = None
 
         #---------------------------------
-        post_llm = create_model(LLM.Gemini20FlashExp) # ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
-        report_task = f"# 現在時刻: {now_datetime}\n\n# 与えられたタスク:\n{task}"
-        if plan is not None:
-            report_task += f"\n\n# 実行プラン:\n{plan}"
-        report_task += f"\n\n# 実行結果\n{final_str}\n\n# 上記の結果を日本語でレポートしてください。"
-        post_result:BaseMessage = await post_llm.ainvoke( report_task )
-        if isinstance(post_result.content,str):
-            report = post_result.content
-        else:
-            report = final_str
-        self.logPrint("---------------------------------")
-        self.logPrint(report)
+        if final_str:
+            post_llm = create_model(LLM.Gemini20FlashExp) # ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
+            report_task = f"# 現在時刻: {now_datetime}\n\n# 与えられたタスク:\n{task}"
+            if plan_text is not None:
+                report_task += f"\n\n# 実行プラン:\n{plan_text}"
+            report_task += f"\n\n# 実行結果\n{final_str}\n\n# 上記の結果を日本語でレポートしてください。"
+            post_result:BaseMessage = await post_llm.ainvoke( report_task )
+            if isinstance(post_result.content,str):
+                report = post_result.content
+            else:
+                report = final_str
+            self.logPrint("---------------------------------")
+            self.logPrint(report)
     
     async def stop(self):
         try:
@@ -258,6 +323,7 @@ class BwTask:
             pass
 
 async def main():
+    # from session import SessionStore, BwSession
     if os.path.exists('config.env'):
         load_dotenv('config.env')
     task="キャトルアイサイエンス株式会社の会社概要をしらべて"
@@ -265,10 +331,9 @@ async def main():
     #task="Amazonで、格安の2.5inch HDDを探して製品URLをリストアップしてください。"
     workdir = os.path.abspath("tmp/testrun")
     os.makedirs(workdir,exist_ok=True)
-    llm_cache_path = os.path.join(workdir,"llm_cache.db")
-    session = BwTask(dir=workdir,llm_cache_path=llm_cache_path,cdp_port=9222)
-    await session.start(task,True)
-    await session.stop()
+    btask = BwTask(dir=workdir,llm=LLM.Gemini20FlashExp)
+    await btask.start(task)
+    await btask.stop()
 
 if __name__ == "__main__":
     asyncio.run(main())

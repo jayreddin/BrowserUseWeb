@@ -6,7 +6,10 @@ from concurrent.futures import ThreadPoolExecutor, Future
 import asyncio
 import aiohttp
 import random,string
-from browser_task import BwTask
+from langchain_core.caches import BaseCache
+from langchain_core.caches import InMemoryCache
+from langchain_community.cache import SQLiteCache
+from browser_task import LLM,BwTask
 from logging import Logger,getLogger
 logger:Logger = getLogger(__name__)
 
@@ -112,6 +115,9 @@ class BwSession:
         self.vnc_port:int = 0
         self.ws_port:int = 0
         self.cdp_port:int = 0
+        # 設定
+        self._operator_llm:LLM = LLM.Gemini20FlashExp
+        self._planner_llm:LLM|None = None
         # タスク管理用の属性を追加
         self._task_expand:bool = False
         self.task_running:bool = False
@@ -274,26 +280,25 @@ class BwSession:
             logger.exception(f"[{self.session_id}] {str(ex)}")
         return self.get_status()
 
-    async def start_task(self, task_info: str, expand:bool) -> None:
+    async def start_task(self, task_info: str, llm:LLM, planner_llm:LLM|None, llm_cache:BaseCache|None) -> None:
         """タスクを開始"""
         self.touch()
         if self.task is not None or self.task_running:
             raise RuntimeError("タスクが既に実行中です")
         else:
             self.task_running = True
-            self.current_task = self.Pool.submit(self._start_task,task_info,expand)
+            self.current_task = self.Pool.submit(self._start_task,task_info, llm, planner_llm, llm_cache )
 
-    def _start_task(self, task_info: str, expand:bool ) ->None:
-        asyncio.run(self._run_task(task_info,expand))
+    def _start_task(self, prompt: str, llm:LLM, planner_llm:LLM|None,  llm_cache:BaseCache|None ) ->None:
+        asyncio.run(self._run_task(prompt,llm, planner_llm, llm_cache))
 
-    async def _run_task(self, prompt: str , expand:bool) ->None:
+    async def _run_task(self, prompt: str, llm:LLM, planner_llm:LLM|None,  llm_cache:BaseCache|None) ->None:
         try:
             self.touch()
             await self.setup_vnc_server()
             await self.launch_chrome()
-            cache_path = f"{self.WorkDir}/llm_cache.db"
-            self.task = BwTask( dir=self.WorkDir,llm_cache_path=cache_path, cdp_port=self.cdp_port,writer=self._write_msg)
-            await self.task.start(prompt,expand)
+            self.task = BwTask( dir=self.WorkDir,llm_cache=llm_cache, llm=llm, plan_llm=planner_llm, cdp_port=self.cdp_port,writer=self._write_msg)
+            await self.task.start(prompt)
             await self.task.stop()
         except CanNotStartException as ex:
             logger.warning(f"[{self.session_id}] {str(ex)}")
@@ -368,6 +373,11 @@ class SessionStore:
         self.session_timeout:timedelta = timedelta(hours=2)
         self._last_cleanup:datetime = datetime.now()
         self._sweeper_futute:Future|None = None
+        self._llm_cache_path:str = os.path.join(self.SessionsDir,'langchain_cache.db')
+        self._llm_cache:BaseCache = SQLiteCache(self._llm_cache_path)
+        # 設定
+        self._operator_llm:LLM = LLM.Gemini20FlashExp
+        self._planner_llm:LLM|None = None
 
     async def _start_sweeper(self):
         if self._sweeper_futute is None:
@@ -412,6 +422,19 @@ class SessionStore:
         
         self._last_cleanup = now
 
+    def setup_session( self, session:BwSession ):
+        session._operator_llm = self._operator_llm
+        session._planner_llm = self._planner_llm
+
+    def setup_sessions( self ):
+        for session_id,session in self.sessions.items():
+            self.setup_session(session)
+
+    def configure(self, operator_llm:LLM, planner_llm:LLM|None ):
+        self._operator_llm = operator_llm
+        self._planner_llm = planner_llm
+        self.setup_sessions()
+
     async def get(self, session_id: str|None) -> BwSession | None:
         """セッションを取得し、タイムスタンプを更新"""
         if session_id and session_id in self.sessions:
@@ -432,6 +455,7 @@ class SessionStore:
         logger.info(f"[{session_id}] create session")
         os.makedirs(workdir,exist_ok=False)
         session = BwSession(session_id, server_addr=server_addr, client_addr=client_addr, dir=workdir, hostsfile=self.hostsfile, Pool=self.Pool)
+        self.setup_session(session)
         self.sessions[session_id] = session
         await self._start_sweeper()
         return session
