@@ -107,7 +107,7 @@ class BwSession:
         self.WorkDir:str = dir
         self.hostsfile:str = hostsfile
         self.Pool:ThreadPoolExecutor = Pool
-        self.geometry = "1366x768"
+        self.geometry = "1024x900"
         self.vnc_proc:subprocess.Popen|None = None
         self.websockify_proc:subprocess.Popen|None = None
         self.chrome_process:subprocess.Popen|None = None
@@ -209,7 +209,7 @@ class BwSession:
                 "--heartbeat", "30",
                 f"0.0.0.0:{ws_port}",
                 f"localhost:{vnc_port}"
-            ])
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             # websockifyの起動を待つ
             await self.wait_port(ws_proc,ws_port,10.0)
             if ws_proc.poll() is not None:
@@ -239,7 +239,7 @@ class BwSession:
             prof = f"{self.WorkDir}/.config/google-chrome/Default"
             os.makedirs(prof,exist_ok=True)
             chrome_cmd=["/opt/google/chrome/google-chrome",
-                "--start-maximized", "--no-first-run", "--disable-sync", "--no-default-browser-check","--password-store=basic",
+                "--kiosk", "--no-first-run", "--disable-sync", "--no-default-browser-check","--password-store=basic",
                 "--disable-extensions",
                 "--disable-metrics", "--disable-metrics-reporting",
                 "--disable-gpu", "--disable-vulkan", "--disable-accelerated-layers", "--enable-unsafe-swiftshader",
@@ -252,7 +252,7 @@ class BwSession:
             sw = 1
             if sw==0:
                 env["HOME"]=self.WorkDir
-                chrome_process = subprocess.Popen( chrome_cmd, cwd=self.WorkDir, env=env )
+                chrome_process = subprocess.Popen( chrome_cmd, cwd=self.WorkDir, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL )
             else:
                 bcmd = [ "bwrap", "--bind", "/", "/", "--dev", "/dev", "--bind", self.WorkDir, orig_home, "--chdir", orig_home ]
                 if os.path.exists(self.hostsfile):

@@ -16,7 +16,10 @@ body {
 /* Control Panel (Left Side)
 -------------------------------------------------- */
 .control-panel {
-    width: 300px;
+    width: 400px;
+    min-width: 300px;
+    resize: horizontal;
+    overflow: auto;
     background-color: #ffffff;
     padding: 20px;
     box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
@@ -86,6 +89,9 @@ body {
     cursor: pointer;
     font-size: 0.7em;
     transition: background-color 0.3s;
+}
+#config-btn {
+    text-decoration: none;
 }
 
 #execute-task-btn {

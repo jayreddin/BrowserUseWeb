@@ -10,6 +10,7 @@ import signal
 import time
 import json
 from session import SessionStore, BwSession
+from browser_task import LLM
 
 from logging import Logger,getLogger
 logger:Logger = getLogger(__name__)
@@ -32,6 +33,10 @@ app = Flask(__name__)
 async def index():
     return make_response(send_from_directory('static', 'index.html'))
 
+@app.route('/config.html')
+async def config():
+    return make_response(send_from_directory('static', 'config.html'))
+
 @app.route('/favicon.ico')
 async def favicon():
     return send_from_directory('static', 'favicon.ico')
@@ -44,6 +49,39 @@ async def style_css():
 async def novnc_files(path):
     """noVNCのファイルを提供"""
     return send_from_directory(novncdir, path)
+
+@app.route('/api/config', methods=['GET','POST'])
+async def config_api():
+    try:
+        if request.method == 'POST':
+            data = request.get_json()
+            operator = data.get('operator_llm')
+            planner = data.get('planner_llm')
+            max_sessions = data.get('max_sessions')
+            
+            # バリデーション
+            try:
+                operator_llm = LLM(operator)
+                planner_llm = LLM(planner) if planner else None
+                max_sessions = int(max_sessions)
+                session_store.configure(operator_llm, planner_llm)
+                if 0<max_sessions and max_sessions<=10:
+                    session_store._max_sessions = max_sessions
+                return jsonify({'status': 'success'})
+            except ValueError as e:
+                return jsonify({'status': 'error', 'msg': str(e)}), 400
+        else: #if request.method == 'GET':
+            # 現在のLLM設定を返す
+            return jsonify({
+                'status': 'success',
+                'operator_llm': session_store._operator_llm.value,
+                'planner_llm': session_store._planner_llm.value if session_store._planner_llm else None,
+                'current_sessions': len(session_store.sessions),
+                'max_sessions': session_store._max_sessions,
+            })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'status': 'error','msg': str(e)}), 500
 
 @app.route('/api/<path:api>', methods=['GET','POST'])
 async def service_api(api):
@@ -103,7 +141,7 @@ async def service_api(api):
             expand:bool = data.get('expand','') == 'true'
             msg = None
             if task:
-                await ses.start_task(task,expand)
+                await ses.start_task(task, session_store._operator_llm, session_store._planner_llm, session_store._llm_cache)
             else:
                 msg = 'タスクが指定されていません'
             res = ses.get_status()
