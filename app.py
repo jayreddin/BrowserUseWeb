@@ -51,6 +51,18 @@ async def novnc_files(path):
     """noVNCのファイルを提供"""
     return send_from_directory(novncdir, path)
 
+@app.route('/api/llm_list')
+async def llm_list():
+    """LLMの一覧を返す"""
+    try:
+        llm_list = [{"name": llm.name, "value": llm.value} for llm in LLM]
+        return jsonify({
+            'status': 'success',
+            'llm_list': llm_list
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'msg': str(e)}), 500
+
 @app.route('/api/config', methods=['GET','POST'])
 async def config_api():
     try:
@@ -62,23 +74,24 @@ async def config_api():
             
             # バリデーション
             try:
-                operator_llm = LLM(operator)
-                planner_llm = LLM(planner) if planner else None
+                # nameからLLMを取得
+                operator_llm = LLM[operator]
+                planner_llm = LLM[planner] if planner else None
                 max_sessions = int(max_sessions)
-                session_store.configure(operator_llm, planner_llm)
-                if 0<max_sessions and max_sessions<=10:
-                    session_store._max_sessions = max_sessions
+                session_store.configure(operator_llm, planner_llm, max_sessions)
                 return jsonify({'status': 'success'})
             except ValueError as e:
                 return jsonify({'status': 'error', 'msg': str(e)}), 400
         else: #if request.method == 'GET':
             # 現在のLLM設定を返す
+            current_connections,current_sessions,max_sessions = session_store.get_status()
             return jsonify({
                 'status': 'success',
-                'operator_llm': session_store._operator_llm.value,
-                'planner_llm': session_store._planner_llm.value if session_store._planner_llm else None,
-                'current_sessions': len(session_store.sessions),
-                'max_sessions': session_store._max_sessions,
+                'operator_llm': session_store._operator_llm.name,
+                'planner_llm': session_store._planner_llm.name if session_store._planner_llm else None,
+                'current_conneections': current_connections,
+                'current_sessions': current_sessions,
+                'max_sessions': max_sessions,
             })
     except Exception as e:
         traceback.print_exc()
@@ -98,6 +111,7 @@ async def service_api(api):
             def sesgenerate():
                 ses = None
                 try:
+                    session_store.incr()
                     ses = asyncio.run( session_store.create(server_addr,client_addr))
                     if ses is None:
                         res = { 'status': 'success', 'msg': '接続数制限中' }
@@ -126,6 +140,7 @@ async def service_api(api):
                 finally:
                     if ses is not None:
                         asyncio.run( session_store.remove(ses.session_id) )
+                    session_store.decr()
             return Response(sesgenerate(), mimetype='text/event-stream')   
   
         # session意外の場合

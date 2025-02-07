@@ -32,24 +32,34 @@ class LLM(Enum):
     Gpt4o = "gpt-4o"
     Gpt4oMini = "gpt-4o-mini"
     O3Mini = "o3-mini"
-    Gemini20FlashExp = "gemini-2.0-flash-exp"
-    Gemini20FlashThinkExp = "gemini-2.0-flash-thinking-exp-01-21"
+    Gemini20Flash = "gemini-2.0-flash-exp"
+    Gemini20FlashThink = "gemini-2.0-flash-thinking-exp-01-21"
+    Gemini20Pro = "gemini-2.0-pro-exp-02-05"
 
     @staticmethod
     def get_lite_model(llm:"LLM") -> "LLM":
         if llm==LLM.Gpt4o or llm==LLM.Gpt4oMini or llm==LLM.O3Mini:
             return LLM.Gpt4oMini
-        if llm==LLM.Gemini20FlashExp or llm==LLM.Gemini20FlashThinkExp:
-            return LLM.Gemini20FlashExp
+        if llm==LLM.Gemini20Flash or llm==LLM.Gemini20Pro or llm==LLM.Gemini20FlashThink:
+            return LLM.Gemini20Flash
+
+    @staticmethod
+    def get_llm(name:"str|LLM|None") -> "LLM|None":
+        if isinstance(name,LLM) or name is None:
+            return name
+        for llm in LLM:
+            if name==llm.name or name==llm.value:
+                return llm
+        return None
 
 def create_model( model:str|LLM,temperature:float=0.0,cache:BaseCache|None=None) -> BaseChatModel:
-    model_name = model.value if isinstance(model,LLM) else str(model)
-    if model_name == LLM.Gpt4oMini.value or model_name == LLM.Gpt4o.value or model_name == LLM.O3Mini.value:
+    llm = LLM.get_llm(model)
+    if llm == LLM.Gpt4oMini or llm == LLM.Gpt4o or llm == LLM.O3Mini:
         openai_api_key = os.getenv('OPENAI_API_KEY')
         if not openai_api_key:
             raise ValueError('OPENAI_API_KEY is not set')
-        return ChatOpenAI(model=model_name, temperature=temperature, cache=cache)
-    elif model_name == LLM.Gemini20FlashExp.value or model_name == LLM.Gemini20FlashThinkExp.value:
+        return ChatOpenAI(model=llm.value, temperature=temperature, cache=cache)
+    elif llm == LLM.Gemini20Flash or llm == LLM.Gemini20FlashThink or llm==LLM.Gemini20Pro:
         kw = None
         if os.getenv('GEMINI_API_KEY') is not None:
             kw = SecretStr(os.getenv('GEMINI_API_KEY')) # type: ignore
@@ -57,9 +67,12 @@ def create_model( model:str|LLM,temperature:float=0.0,cache:BaseCache|None=None)
             kw = SecretStr(os.getenv('GOOGLE_API_KEY')) # type: ignore
         if kw is None:
             raise ValueError('GEMINI_API_KEY or GOOGLE_API_KEY is not set')
-        return ChatGoogleGenerativeAI(model=model_name,temperature=temperature,cache=cache, api_key=kw)        
+        if llm==LLM.Gemini20FlashThink:
+            return ChatGoogleGenerativeAI(model=llm.value, cache=cache, api_key=kw)
+        else:
+            return ChatGoogleGenerativeAI(model=llm.value,temperature=temperature, cache=cache, api_key=kw)
     else:
-        raise ValueError(f"Invalid model name: {model_name}")
+        raise ValueError(f"Invalid model name: {model}")
 
 class ScrAction(BaseModel):
 	amount: Literal['half','full'] = 'full'
@@ -160,7 +173,7 @@ class BwController(Controller):
 class XAgent(Agent):
 
     def __init__(self, *, task,
-                 llm,page_extraction_llm=None,planner_llm=None,planner_interval:int=1,
+                 llm:BaseChatModel,page_extraction_llm:BaseChatModel|None=None,planner_llm:BaseChatModel|None=None,planner_interval:int=1,
                  browser,browser_context=None,
                  controller,
                  use_vision:bool=False,
@@ -303,7 +316,7 @@ class BwTask:
 
         #---------------------------------
         if final_str:
-            post_llm = create_model(LLM.Gemini20FlashExp) # ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
+            post_llm = create_model(LLM.Gemini20Flash) # ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
             report_task = f"# 現在時刻: {now_datetime}\n\n# 与えられたタスク:\n{task}"
             if plan_text is not None:
                 report_task += f"\n\n# 実行プラン:\n{plan_text}"
@@ -332,7 +345,7 @@ async def main():
     #task="Amazonで、格安の2.5inch HDDを探して製品URLをリストアップしてください。"
     workdir = os.path.abspath("tmp/testrun")
     os.makedirs(workdir,exist_ok=True)
-    btask = BwTask(dir=workdir,llm=LLM.Gemini20FlashExp)
+    btask = BwTask(dir=workdir,llm=LLM.Gemini20Flash)
     await btask.start(task)
     await btask.stop()
     print("done")
@@ -341,7 +354,7 @@ async def test_hilight():
     """ハイライトが遅いのかを確認するテスト"""
     workdir = os.path.abspath("tmp/testrun")
     os.makedirs(workdir,exist_ok=True)
-    btask = BwTask(dir=workdir,llm=LLM.Gemini20FlashExp)
+    btask = BwTask(dir=workdir,llm=LLM.Gemini20Flash)
 
     browser_context = btask._browser_context
     page = await browser_context.get_current_page()

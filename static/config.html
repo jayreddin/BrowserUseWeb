@@ -10,23 +10,17 @@
         <div class="aform-group">
             <label for="operator_llm">Operator LLM:</label>
             <select id="operator_llm">
-                <option value="gpt-4o">GPT-4o</option>
-                <option value="gpt-4o-mini">GPT-4o Mini</option>
-                <option value="o3-mini">O3 Mini</option>
-                <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash Exp</option>
-                <option value="gemini-2.0-flash-thinking-exp-01-21">Gemini 2.0 Flash Think Exp</option>
             </select>
         </div>
         <div class="sorm-group">
             <label for="planner_llm">Planner LLM:</label>
             <select id="planner_llm">
                 <option value="">None</option>
-                <option value="gpt-4o">GPT-4o</option>
-                <option value="gpt-4o-mini">GPT-4o Mini</option>
-                <option value="o3-mini">O3 Mini</option>
-                <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash Exp</option>
-                <option value="gemini-2.0-flash-thinking-exp-01-21">Gemini 2.0 Flash Think Exp</option>
             </select>
+        </div>
+        <div class="sorm-group">
+            <label for="current_conneections">Current connections:</label>
+            <span id="current_conneections"></span>
         </div>
         <div class="sorm-group">
             <label for="current_sessions">Current sessions:</label>
@@ -54,9 +48,37 @@
     </div>
 
     <script>
+        // LLMリストを取得して選択肢を設定
+        async function loadLLMList() {
+            try {
+                const response = await fetch('/api/llm_list');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const operatorSelect = document.getElementById('operator_llm');
+                    const plannerSelect = document.getElementById('planner_llm');
+                    
+                    data.llm_list.forEach(llm => {
+                        const option = document.createElement('option');
+                        option.value = llm.name;
+                        option.textContent = `${llm.name}: ${llm.value}`;
+                        
+                        operatorSelect.appendChild(option.cloneNode(true));
+                        plannerSelect.appendChild(option.cloneNode(true));
+                    });
+                } else {
+                    showMessage('LLMリストの取得に失敗しました: ' + data.msg, false);
+                }
+            } catch (error) {
+                showMessage('LLMリストの取得中にエラーが発生しました: ' + error, false);
+            }
+        }
+
         // 現在の設定を取得して表示
         async function loadCurrentConfig() {
             try {
+                // LLMリストを読み込んでから現在の設定を適用
+                await loadLLMList();
                 const response = await fetch('/api/config', {
                     method: 'GET',
                     headers: {
@@ -64,10 +86,10 @@
                     }
                 });
                 const data = await response.json();
-                
                 if (data.status === 'success') {
                     document.getElementById('operator_llm').value = data.operator_llm;
                     document.getElementById('planner_llm').value = data.planner_llm || '';
+                    document.getElementById('current_conneections').textContent = data.current_conneections;
                     document.getElementById('current_sessions').textContent = data.current_sessions;
                     document.getElementById('max_sessions').value = data.max_sessions;
                 } else {

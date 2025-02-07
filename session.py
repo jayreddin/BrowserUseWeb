@@ -2,6 +2,7 @@ import sys, os, shutil, subprocess, traceback, tempfile
 from datetime import datetime, timedelta
 import time
 from queue import Queue
+from threading import Lock
 from concurrent.futures import ThreadPoolExecutor, Future
 import asyncio
 import aiohttp
@@ -116,7 +117,7 @@ class BwSession:
         self.ws_port:int = 0
         self.cdp_port:int = 0
         # 設定
-        self._operator_llm:LLM = LLM.Gemini20FlashExp
+        self._operator_llm:LLM = LLM.Gemini20Flash
         self._planner_llm:LLM|None = None
         # タスク管理用の属性を追加
         self._task_expand:bool = False
@@ -364,6 +365,8 @@ class BwSession:
 # セッションデータを保存する辞書
 class SessionStore:
     def __init__(self, *, max_sessions:int=3, dir:str="tmp/sessions", Pool:ThreadPoolExecutor|None=None):
+        self._lock = Lock()
+        self._connect:int = 0
         self._max_sessions:int = max_sessions
         self.sessions: dict[str, BwSession] = {}
         self.SessionsDir:str = os.path.abspath(dir)
@@ -376,7 +379,7 @@ class SessionStore:
         self._llm_cache_path:str = os.path.join(self.SessionsDir,'langchain_cache.db')
         self._llm_cache:BaseCache = SQLiteCache(self._llm_cache_path)
         # 設定
-        self._operator_llm:LLM = LLM.Gemini20FlashExp
+        self._operator_llm:LLM = LLM.Gemini20Flash
         self._planner_llm:LLM|None = None
 
     async def _start_sweeper(self):
@@ -430,10 +433,23 @@ class SessionStore:
         for session_id,session in self.sessions.items():
             self.setup_session(session)
 
-    def configure(self, operator_llm:LLM, planner_llm:LLM|None ):
+    def configure(self, operator_llm:LLM, planner_llm:LLM|None, max_sessions:int ):
+        if max_sessions<0 or 20<max_sessions:
+            raise ValueError(f"invalid number {max_sessions}")
         self._operator_llm = operator_llm
         self._planner_llm = planner_llm
         self.setup_sessions()
+
+    def incr(self):
+        with self._lock:
+            self._connect+=1
+    def decr(self):
+        with self._lock:
+            self._connect-=1
+
+    def get_status(self) ->tuple[int,int,int]:
+        with self._lock:
+            return self._connect, len(self.sessions), self._max_sessions
 
     async def get(self, session_id: str|None) -> BwSession | None:
         """セッションを取得し、タイムスタンプを更新"""
