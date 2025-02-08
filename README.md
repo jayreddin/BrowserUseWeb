@@ -145,6 +145,23 @@ http://localhost:5000
 - **ブラウザ制御**
   - Chrome DevTools Protocol
 
+## カスタマイズ
+
+browser-useのブラウザ操作がとても遅いので、ボトルネックポイントを探していたら、buldDomTree.jsの実行が遅いことに気づきました。
+例えば、アマゾンのトップページにおいて、私の環境で5から6秒程度の処理時間が必要でした。
+この部分を高速化できないかと試したら、結局のところbuildDomTreeの処理そのものは1秒以下で完了していて、その結果をpythonへ返信する処理で数秒を要するみたいです。
+したがって、buildDomTree.jsの最後を以下のように修正し、
+```javascript
+return JSON.stringify(buildDomTree(document.body));
+```
+DomServiceの_build_dom_tree関数の一部を以下のように修正しました。
+```python
+eval_page = json.loads(await self.page.evaluate(js_code, args))
+```
+この修正で、_build_dom_tree関数の処理時間は、数分の１から数十分の１になります。
+
+ただし、この修正がすべての環境に有効かどうかわかりません。すくなくとも私の環境では絶大な効果を得ました。
+
 ## ライセンス
 
 このプロジェクトはMIT Licenseの下で提供されています。詳細は[LICENSE](LICENSE)ファイルを参照してください。

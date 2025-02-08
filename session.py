@@ -438,6 +438,7 @@ class SessionStore:
             raise ValueError(f"invalid number {max_sessions}")
         self._operator_llm = operator_llm
         self._planner_llm = planner_llm
+        self._max_sessions = max_sessions
         self.setup_sessions()
 
     def incr(self):

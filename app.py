@@ -72,27 +72,21 @@ async def config_api():
             planner = data.get('planner_llm')
             max_sessions = data.get('max_sessions')
             
-            # バリデーション
-            try:
-                # nameからLLMを取得
-                operator_llm = LLM[operator]
-                planner_llm = LLM[planner] if planner else None
-                max_sessions = int(max_sessions)
-                session_store.configure(operator_llm, planner_llm, max_sessions)
-                return jsonify({'status': 'success'})
-            except ValueError as e:
-                return jsonify({'status': 'error', 'msg': str(e)}), 400
-        else: #if request.method == 'GET':
-            # 現在のLLM設定を返す
-            current_connections,current_sessions,max_sessions = session_store.get_status()
-            return jsonify({
-                'status': 'success',
-                'operator_llm': session_store._operator_llm.name,
-                'planner_llm': session_store._planner_llm.name if session_store._planner_llm else None,
-                'current_conneections': current_connections,
-                'current_sessions': current_sessions,
-                'max_sessions': max_sessions,
-            })
+            # nameからLLMを取得
+            operator_llm = LLM[operator]
+            planner_llm = LLM[planner] if planner else None
+            max_sessions = int(max_sessions)
+            session_store.configure(operator_llm, planner_llm, max_sessions)
+        # 現在のLLM設定を返す
+        current_connections,current_sessions,max_sessions = session_store.get_status()
+        return jsonify({
+            'status': 'success',
+            'operator_llm': session_store._operator_llm.name,
+            'planner_llm': session_store._planner_llm.name if session_store._planner_llm else None,
+            'current_conneections': current_connections,
+            'current_sessions': current_sessions,
+            'max_sessions': max_sessions,
+        })
     except Exception as e:
         traceback.print_exc()
         return jsonify({'status': 'error','msg': str(e)}), 500
@@ -179,7 +173,15 @@ async def service_api(api):
         traceback.print_exc()
         return jsonify({'status': 'error','msg': str(e)}), 500
     finally:
-        pass
+        try:
+            current_loop = asyncio.get_running_loop()
+            while True:
+                tasks = {task for task in asyncio.all_tasks(loop=current_loop) if task is not asyncio.current_task()}
+                if not tasks:
+                    break
+                await asyncio.sleep(0.1)
+        except:
+            pass
 
 def main():
     # .envファイルをロード
