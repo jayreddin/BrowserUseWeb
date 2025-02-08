@@ -55,7 +55,7 @@ async def novnc_files(path):
 async def llm_list():
     """LLMの一覧を返す"""
     try:
-        llm_list = [{"name": llm.name, "value": llm.value} for llm in LLM]
+        llm_list = [{"name": llm.name, "value": llm._full_name} for llm in LLM]
         return jsonify({
             'status': 'success',
             'llm_list': llm_list

@@ -5,6 +5,7 @@ from datetime import datetime
 import time
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_ollama import ChatOllama
 from pydantic import SecretStr
 from enum import Enum
 from langchain.prompts import PromptTemplate
@@ -32,13 +33,39 @@ logger:Logger = getLogger(__name__)
 
 os.environ["ANONYMIZED_TELEMETRY"] = "false"
 
+t128k:int = 128000
+t8k:int = 8192
+t16k:int = 16384
+t32k:int = 32768
+t64k:int = 65536
+t128k:int = 131072
+
 class LLM(Enum):
-    Gpt4o = "gpt-4o"
-    Gpt4oMini = "gpt-4o-mini"
-    O3Mini = "o3-mini"
-    Gemini20Flash = "gemini-2.0-flash-exp"
-    Gemini20FlashThink = "gemini-2.0-flash-thinking-exp-01-21"
-    Gemini20Pro = "gemini-2.0-pro-exp-02-05"
+    Gpt4o = ( "gpt-4o", 0, t64k )
+    Gpt4oMini = ( "gpt-4o-mini", 0, t64k )
+    O3Mini = ( "o3-mini", 0, t64k )
+    Gemini20Flash = ( "gemini-2.0-flash-exp", 1, t64k )
+    Gemini20FlashThink = ( "gemini-2.0-flash-thinking-exp-01-21", 1, t64k )
+    Gemini20Pro = ( "gemini-2.0-pro-exp-02-05", 1, t64k )
+
+    Phi3 = ( "phi3:latest", 9, t64k )
+    Arrowpro = ( "hawkclaws/datapilot-arrowpro-7b-robinhood:latest", 9, t64k )
+
+    LlamaTranslate = ( "7shi/llama-translate:8b-q4_K_M", 9, t64k )
+    DeepSeekV3 = ( "nezahatkorkmaz/deepseek-v3:latest", 9, t64k )
+    DeepSeekR1_1B = ( "deepseek-r1:1.5b", 9, t64k )
+    DeepSeekR1_cline_tools_1B = ( "tom_himanen/deepseek-r1-roo-cline-tools:1.5b", 9, t64k )
+    DeepSeekR1_cline_tools_8B = ( "tom_himanen/deepseek-r1-roo-cline-tools:8b", 9, t64k )
+    DeepSeekR1_coder_tools_1B = ( "Mrs_peanutbutt3r/deepseek-r1-coder-tools:1.5b", 9, t64k )
+    DeepSeekR1_coder_tools_8B = ( "Mrs_peanutbutt3r/deepseek-r1-coder-tools:7b", 9, t64k )
+    DeepSeekR1_tool_call_7B = ( "MFDoom/deepseek-r1-tool-calling:7b", 9, t64k )
+    DeepSeekR1_tool_call_1B = ( "MFDoom/deepseek-r1-tool-calling:1.5b", 9, t64k )
+
+    def __init__(self, value: str, grp:int, sz:int):
+        self.__value__ = value
+        self._full_name:str = value
+        self._grp:int = grp
+        self._sz:int = sz
 
     @staticmethod
     def get_lite_model(llm:"LLM") -> "LLM":
@@ -46,37 +73,43 @@ class LLM(Enum):
             return LLM.Gpt4oMini
         if llm==LLM.Gemini20Flash or llm==LLM.Gemini20Pro or llm==LLM.Gemini20FlashThink:
             return LLM.Gemini20Flash
+        return LLM.Gemini20Flash
 
     @staticmethod
     def get_llm(name:"str|LLM|None") -> "LLM|None":
         if isinstance(name,LLM) or name is None:
             return name
         for llm in LLM:
-            if name==llm.name or name==llm.value:
+            if name==llm.name or name==llm._full_name:
                 return llm
         return None
 
 def create_model( model:str|LLM,temperature:float=0.0,cache:BaseCache|None=None) -> BaseChatModel:
     llm = LLM.get_llm(model)
-    if llm == LLM.Gpt4oMini or llm == LLM.Gpt4o or llm == LLM.O3Mini:
-        openai_api_key = os.getenv('OPENAI_API_KEY')
-        if not openai_api_key:
-            raise ValueError('OPENAI_API_KEY is not set')
-        return ChatOpenAI(model=llm.value, temperature=temperature, cache=cache)
-    elif llm == LLM.Gemini20Flash or llm == LLM.Gemini20FlashThink or llm==LLM.Gemini20Pro:
-        kw = None
-        if os.getenv('GEMINI_API_KEY') is not None:
-            kw = SecretStr(os.getenv('GEMINI_API_KEY')) # type: ignore
-        elif os.getenv('GOOGLE_API_KEY') is not None:
-            kw = SecretStr(os.getenv('GOOGLE_API_KEY')) # type: ignore
-        if kw is None:
-            raise ValueError('GEMINI_API_KEY or GOOGLE_API_KEY is not set')
-        if llm==LLM.Gemini20FlashThink:
-            return ChatGoogleGenerativeAI(model=llm.value, cache=cache, api_key=kw)
-        else:
-            return ChatGoogleGenerativeAI(model=llm.value,temperature=temperature, cache=cache, api_key=kw)
-    else:
-        raise ValueError(f"Invalid model name: {model}")
+    if llm:
+        if llm._grp==0:
+            openai_api_key = os.getenv('OPENAI_API_KEY')
+            if not openai_api_key:
+                raise ValueError('OPENAI_API_KEY is not set')
+            return ChatOpenAI(model=llm._full_name, temperature=temperature, cache=cache)
+        elif llm._grp==1:
+            kw = None
+            if os.getenv('GEMINI_API_KEY') is not None:
+                kw = SecretStr(os.getenv('GEMINI_API_KEY')) # type: ignore
+            elif os.getenv('GOOGLE_API_KEY') is not None:
+                kw = SecretStr(os.getenv('GOOGLE_API_KEY')) # type: ignore
+            if kw is None:
+                raise ValueError('GEMINI_API_KEY or GOOGLE_API_KEY is not set')
+            if llm==LLM.Gemini20FlashThink:
+                return ChatGoogleGenerativeAI(model=llm._full_name, cache=cache, api_key=kw)
+            else:
+                return ChatGoogleGenerativeAI(model=llm._full_name,temperature=temperature, cache=cache, api_key=kw)
+        elif llm._grp==9:
+            ollama_url = os.getenv('OLLAMA_HOST')
+            if not ollama_url:
+                raise ValueError('OLLAMA_HOST is not set')
+            return ChatOllama(model=llm._full_name, num_ctx=llm._sz, cache=cache)
+    raise ValueError(f"Invalid model name: {model}")
 
 class BwDomService(DomService):
 
@@ -360,16 +393,17 @@ class BwTask:
         now_datetime = now.strftime("%A, %Y-%m-%d %H:%M")
 
         x_extractor = LLM.get_lite_model(self._operator_llm)
-        x_planner:str = self._plan_llm.value if self._plan_llm is not None else "None"
+        x_planner:str = self._plan_llm._full_name if self._plan_llm is not None else "None"
         self.logPrint("")
         self.logPrint("-------------------------------------")
         self.logPrint(f"実行開始: {now_datetime}")
         self.logPrint("-------------------------------------")
-        self.logPrint(f"operator:{self._operator_llm.value}")
-        self.logPrint(f"extractor:{x_extractor.value}")
+        self.logPrint(f"operator:{self._operator_llm._full_name}")
+        self.logPrint(f"extractor:{x_extractor._full_name}")
         self.logPrint(f"planner:{x_planner}")
         llm_cache:BaseCache = self._llm_cache
         operator_llm:BaseChatModel = create_model(self._operator_llm, cache=llm_cache)
+        test_res = await operator_llm.ainvoke("動作テストです。正常稼働ならYesを返信して。")
         extraction_llm:BaseChatModel = create_model(x_extractor, cache=llm_cache)
         planner_llm:BaseChatModel|None = create_model(self._plan_llm, cache=llm_cache) if self._plan_llm is not None else None
 
