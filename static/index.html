@@ -10,6 +10,12 @@
     <div class="container">
         <div class="control-panel">
             <textarea id="task-input" rows="5" placeholder="タスクを入力"></textarea>
+            <!-- <div class="file-upload">
+                <input type="file" id="file-input" class="file-input">
+                <label id="file-label" for="file-input">📎 ファイルを添付</label>
+            </div> -->
+            <div class="sensitive-data-panel">
+            </div>
             <div class="button-panel">
                 <a id="config-btn" class="btn" href="config.html" target="_blank">⚙️</a>
                 <div id="vnc-status" class="status-text">Xvnc</div>
@@ -177,11 +183,67 @@
             }
         });
 
+        // Sensitive Data 管理
+        const sensitiveDataPanel = document.querySelector('.sensitive-data-panel');
+        const addSensitiveBtn = document.querySelector('.add-sensitive-btn');
+
+        function createSensitiveDataForm(key = '', value = '') {
+            const div = document.createElement('div');
+            div.className = 'sensitive-data-form';
+            div.innerHTML = `
+                <input type="text" class="sensitive-key" placeholder="キー" value="${key}">
+                <input type="text" class="sensitive-value" placeholder="値" value="${value}">
+                <button class="remove-sensitive-btn">×</button>
+                <button class="add-sensitive-btn">+</button>
+            `;
+            div.querySelector('.add-sensitive-btn').addEventListener('click', handleAddSensitiveData);
+            div.querySelector('.remove-sensitive-btn').addEventListener('click', (e) => {
+                e.target.closest('.sensitive-data-form').remove();
+            });
+
+            return div;
+        }
+
+        function handleAddSensitiveData(e) {
+            // 新しい入力フォームを追加
+            sensitiveDataPanel.appendChild(createSensitiveDataForm());
+            form.querySelector('.add-sensitive-btn').addEventListener('click', (e) => {
+                    e.target.closest('.sensitive-data-form').remove();
+             });
+        }
+
+        // 初期の入力フォームを追加
+        sensitiveDataPanel.appendChild(createSensitiveDataForm());
+
         // タスク開始
         async function startTask() {
             const task = taskInput.value.trim();
             if (!task) return;
-            fetch('/api/task_start', { method: 'POST', headers: {'Content-Type': 'application/json', 'X-session-ID': session_id}, body: JSON.stringify({ task: task }) } )
+
+            // Sensitive Dataの収集
+            const sensitiveData = {};
+            const forms = document.querySelectorAll('.sensitive-data-form');
+            forms.forEach(form => {
+                const key = form.querySelector('.sensitive-key').value.trim();
+                const value = form.querySelector('.sensitive-value').value.trim();
+                if (key && value) {
+                    console.log('key:', key, 'value:', value);
+                    sensitiveData[key] = value;
+                }
+            });
+            console.log('sensitiveData:', sensitiveData);
+
+            fetch('/api/task_start', { 
+                method: 'POST', 
+                headers: {
+                    'Content-Type': 'application/json', 
+                    'X-session-ID': session_id
+                }, 
+                body: JSON.stringify({ 
+                    task: task,
+                    sensitive_data: Object.keys(sensitiveData).length > 0 ? sensitiveData : null
+                }) 
+            })
                 .then(response => response.json())
                 .then(data => xx_update_status(data))
                 .catch(error => {

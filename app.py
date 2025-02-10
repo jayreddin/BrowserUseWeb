@@ -10,8 +10,9 @@ from dotenv import load_dotenv
 import signal
 import time
 import json
-from session import SessionStore, BwSession
-from browser_task import LLM
+
+from buweb.service.session import SessionStore, BwSession
+from buweb.model.model import LLM
 
 from logging import Logger,getLogger
 logger:Logger = getLogger(__name__)
@@ -148,10 +149,11 @@ async def service_api(api):
         elif api=='task_start':
             data = request.get_json()
             task = data.get('task', '')
+            sensitive_data = data.get('sensitive_data', None)
             expand:bool = data.get('expand','') == 'true'
             msg = None
             if task:
-                await ses.start_task(task, session_store._operator_llm, session_store._planner_llm, session_store._llm_cache)
+                await ses.start_task(task, session_store._operator_llm, session_store._planner_llm, session_store._llm_cache, sensitive_data)
             else:
                 msg = 'タスクが指定されていません'
             res = ses.get_status()
@@ -166,6 +168,23 @@ async def service_api(api):
         elif api=='browser_stop':
             res = await ses.stop_browser()
             return jsonify(res)
+
+        elif api=='store_file':
+            if 'file' not in request.files:
+                return jsonify({'status': 'error', 'msg': 'No file part'})
+            
+            file = request.files['file']
+            if file.filename is None or file.filename == '':
+                return jsonify({'status': 'error', 'msg': 'No selected file'})
+            
+            try:
+                # ファイルの内容を読み込む
+                content = file.read()
+                # ファイルを保存
+                await ses.store_file(file.filename, content)
+                return jsonify({'status': 'success', 'msg': ''})
+            except Exception as e:
+                return jsonify({'status': 'error', 'msg': str(e)})
 
         return jsonify({'status': 'error', 'msg': 'invalid api name'}), 404
 

@@ -10,7 +10,8 @@ import random,string
 from langchain_core.caches import BaseCache
 from langchain_core.caches import InMemoryCache
 from langchain_community.cache import SQLiteCache
-from browser_task import LLM,BwTask
+from buweb.model.model import LLM
+from buweb.task.operator import BwTask
 from logging import Logger,getLogger
 logger:Logger = getLogger(__name__)
 
@@ -240,10 +241,12 @@ class BwSession:
             prof = f"{self.WorkDir}/.config/google-chrome/Default"
             os.makedirs(prof,exist_ok=True)
             chrome_cmd=["/opt/google/chrome/google-chrome",
-                "--kiosk", "--no-first-run", "--disable-sync", "--no-default-browser-check","--password-store=basic",
+                # "--kiosk",
+                "--no-first-run", "--disable-sync", "--no-default-browser-check","--password-store=basic",
                 "--disable-extensions",
-                "--disable-metrics", "--disable-metrics-reporting",
-                "--disable-gpu", "--disable-vulkan", "--disable-accelerated-layers", "--enable-unsafe-swiftshader",
+                "--disable-metrics", "--disable-metrics-reporting", "--disable-crash-reporter", "--disable-logging",
+                "--disable-gpu", "--disable-webgl", "--disable-vulkan", "--disable-accelerated-layers", "--enable-unsafe-swiftshader",
+                "--disable-smooth-scrolling", "--disable-spell-checking", "--disable-remote-fonts", "--disable-dev-shm-usage",
                 f"--remote-debugging-port={cdp_port}"
             ]
             # "--disable-popup-blocking",
@@ -281,24 +284,28 @@ class BwSession:
             logger.exception(f"[{self.session_id}] {str(ex)}")
         return self.get_status()
 
-    async def start_task(self, task_info: str, llm:LLM, planner_llm:LLM|None, llm_cache:BaseCache|None) -> None:
+    async def start_task(self, task_info: str, llm:LLM, planner_llm:LLM|None, llm_cache:BaseCache|None, sensitive_data:dict[str,str]|None) -> None:
         """タスクを開始"""
         self.touch()
         if self.task is not None or self.task_running:
             raise RuntimeError("タスクが既に実行中です")
         else:
             self.task_running = True
-            self.current_task = self.Pool.submit(self._start_task,task_info, llm, planner_llm, llm_cache )
+            self.current_task = self.Pool.submit(self._start_task,task_info, llm, planner_llm, llm_cache, sensitive_data )
 
-    def _start_task(self, prompt: str, llm:LLM, planner_llm:LLM|None,  llm_cache:BaseCache|None ) ->None:
-        asyncio.run(self._run_task(prompt,llm, planner_llm, llm_cache))
+    def _start_task(self, prompt: str, llm:LLM, planner_llm:LLM|None,  llm_cache:BaseCache|None, sensitive_data:dict[str,str]|None ) ->None:
+        asyncio.run(self._run_task(prompt,llm, planner_llm, llm_cache, sensitive_data))
 
-    async def _run_task(self, prompt: str, llm:LLM, planner_llm:LLM|None,  llm_cache:BaseCache|None) ->None:
+    async def _run_task(self, prompt: str, llm:LLM, planner_llm:LLM|None,  llm_cache:BaseCache|None, sensitive_data:dict[str,str]|None) ->None:
         try:
             self.touch()
             await self.setup_vnc_server()
             await self.launch_chrome()
-            self.task = BwTask( dir=self.WorkDir,llm_cache=llm_cache, llm=llm, plan_llm=planner_llm, cdp_port=self.cdp_port,writer=self._write_msg)
+            self.task = BwTask( dir=self.WorkDir,
+                            llm_cache=llm_cache, llm=llm, plan_llm=planner_llm,
+                            cdp_port=self.cdp_port,
+                            sensitive_data=sensitive_data,
+                            writer=self._write_msg)
             await self.task.start(prompt)
             await self.task.stop()
         except CanNotStartException as ex:
@@ -353,6 +360,12 @@ class BwSession:
         except Exception as e:
             logger.exception(f"[{self.session_id}] VNCサーバー停止中にエラーが発生: {str(e)}")
         return self.get_status()
+
+    async def store_file(self, file_path:str, data:bytes) -> None:
+        """ファイルを保存"""
+        store_path = os.path.join(self.WorkDir, file_path)
+        with open(store_path, "wb") as f:
+            f.write(data)
 
     async def cleanup(self) -> None:
         """リソースをクリーンアップ"""
