@@ -1,21 +1,18 @@
 from dataclasses import dataclass
 from typing import Type
+from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from browser_use.agent.views import AgentOutput, AgentStepInfo
 from browser_use.controller.registry.views import ActionModel
-from pydantic import BaseModel, ConfigDict, Field, create_model
-
 
 @dataclass
 class CustomAgentStepInfo(AgentStepInfo):
-    step_number: int
-    max_steps: int
+    # step_number: int
+    # max_steps: int
     task: str
-    add_infos: str
     memory: str
     task_progress: str
     future_plans: str
-
 
 class CustomAgentBrain(BaseModel):
     """Current state of the agent"""
