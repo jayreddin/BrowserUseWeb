@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Type
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
-from browser_use.agent.views import AgentOutput, AgentStepInfo
+from browser_use.agent.views import AgentStepInfo, AgentBrain, AgentOutput
 from browser_use.controller.registry.views import ActionModel
 
 @dataclass

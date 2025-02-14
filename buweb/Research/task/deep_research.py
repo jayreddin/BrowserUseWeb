@@ -2,7 +2,7 @@ import pdb
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv('config.env')
 import asyncio
 import sys,os
 os.environ["ANONYMIZED_TELEMETRY"] = "false"
@@ -397,7 +397,7 @@ class CustomChatGoogleGenerativeAI(ChatGoogleGenerativeAI):
 
 
 async def test_run():
-    os.environ['GOOGLE_API_KEY']='AIzaSyDjRXeuvtlj_aTYuv2jI0KxwHf5BBnzQpQ'
+
     limitter = CustomRateLimiter( requests_per_minute=10, requests_per_day=1500, record_file_path='tmp/limit.json')
     llm = CustomChatGoogleGenerativeAI(  model="gemini-2.0-flash-exp")
     task = "調査の動作テストをしてください。ブラウザで何かを検索して、動作テスト結果をレポートして。"
