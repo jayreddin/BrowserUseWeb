@@ -257,9 +257,12 @@ class CustomAgent(Agent):
                     self.register_new_step_callback(state, model_output, self.n_steps)
 
                 self.update_step_info(model_output, step_info)
-
                 logger.info(f"🧠 All Memory: \n{step_info.memory}")
+
                 self._save_conversation(input_messages, model_output)
+                
+                self._check_if_stopped_or_paused()
+
                 if self.model_name != "deepseek-reasoner":
                     # remove prev message
                     self.message_manager._remove_state_message_by_index(-1)
@@ -302,6 +305,14 @@ class CustomAgent(Agent):
 
             self.consecutive_failures = 0
 
+        except InterruptedError:
+            logger.debug('Agent paused')
+            self._last_result = [
+                ActionResult(
+                    error='The agent was paused - now continuing actions might need to be repeated', include_in_memory=True
+                )
+            ]
+            return
         except Exception as e:
             result = await self._handle_step_error(e)
             self._last_result = result
