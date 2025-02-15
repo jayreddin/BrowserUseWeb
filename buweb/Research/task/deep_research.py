@@ -20,73 +20,22 @@ import json
 import re
 from json_repair import repair_json
 
-from langchain.schema import SystemMessage, HumanMessage
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain.schema import BaseMessage, SystemMessage, HumanMessage
 from langchain_core.rate_limiters import BaseRateLimiter, InMemoryRateLimiter
+from langchain_core.caches import BaseCache
+from langchain_community.cache import SQLiteCache
 
-from browser_use.controller.service import Controller
+# from browser_use.controller.service import Controller
 
+from buweb.controller.buw_controller import BwController
+from buweb.browser.buw_browser import BwBrowserContext
+from buweb.model.model import LLM, create_model
 from buweb.Research.agent.custom_agent import CustomAgent
 from buweb.Research.agent.custom_prompts import CustomSystemPrompt
 
 alogger = getLogger(__name__)
 
-class CustomRateLimiter(BaseRateLimiter):
-    def __init__(self, requests_per_minute:int, requests_per_day:int, record_file_path:str|None ):
-        self.requests_per_minute = requests_per_minute
-        self.requests_per_day = requests_per_day
-        self.requests_in_day:int = 0
-        self.requests_in_minute:list[float] = []
-        dt = datetime.now().strftime("%Y-%m-%d")
-        self.current_date = dt
-        self.record_file_path = record_file_path
-        if record_file_path and os.path.exists(record_file_path):
-            with open(record_file_path, "r") as fr:
-                aaa = json.load(fr)
-                b = aaa.get(f'requests_in_{dt}',0.0)
-                if isinstance(b,int|float):
-                    self.requests_in_day = int(b)
-                c = aaa.get('requests_in_minute',[])
-                if isinstance(c,list):
-                    self.requests_in_minute = c
-    def _save(self,dt):
-        if self.record_file_path:
-            with open(self.record_file_path, "w") as fr:
-                json.dump( {f'requests_in_{dt}': self.requests_in_day, 'requests_in_minute': self.requests_in_minute},fr)
-
-    def _can_acquire(self) ->bool:
-        dt = datetime.now().strftime("%Y-%m-%d")
-        if dt != self.current_date:
-            self.requests_in_day = 0
-            self.current_date = dt
-        if self.requests_in_day>=self.requests_per_day:
-            print(f"RateLimit: requests per day {self.requests_in_day}/{self.requests_per_day}")
-            return False
-        now = time.time()
-        while len(self.requests_in_minute)>0 and now-self.requests_in_minute[0]>60.0:
-            print(f"RateLimit: RPM {len(self.requests_in_minute)}/{self.requests_per_minute}")
-            self.requests_in_minute.pop(0)
-        if len(self.requests_in_minute)>=self.requests_per_minute:
-            return False
-        self.requests_in_day += 1
-        self.requests_in_minute.append(now)
-        self._save(dt)
-        return True
-
-    def acquire(self, *, blocking: bool = True) -> bool:
-        if blocking:
-            while not self._can_acquire():
-                time.sleep(1.0)
-            return True
-        else:
-            return self._can_acquire()
-
-    async def aacquire(self, *, blocking: bool = True) -> bool:
-        if blocking:
-            while not self._can_acquire():
-                await asyncio.sleep(1.0)
-            return True
-        else:
-            return self._can_acquire()
 
 def fmtdict(msg:dict,indent:str=""):
     for k,v in msg.items():
@@ -95,6 +44,7 @@ def fmtdict(msg:dict,indent:str=""):
             yield from fmtdict(v,indent+"  ")
         else:
             yield f"{indent}{str(k)}: {str(v)}"
+
 class dump:
     def __init__(self,logger:Logger|None):
         self.logger = logger
@@ -118,13 +68,15 @@ async def safe_close(item):
 
 logger = dump(alogger)
 
-async def deep_research(task, llm, **kwargs):
-    task_id = 'testrun' # str(uuid4())
-    save_dir = kwargs.get("save_dir", os.path.join(f"./tmp/deep_research/{task_id}"))
+async def deep_research( save_dir, task, llm:LLM, llm_cache:BaseCache, **kwargs):
+    #task_id = 'testrun' # str(uuid4())
+    #save_dir = kwargs.get("save_dir", os.path.join(f"./tmp/deep_research/{task_id}"))
     logger.info(f"Save Deep Research at: {save_dir}")
-    if os.path.exists(save_dir):
-        rmtree(save_dir,ignore_errors=True)
+    #if os.path.exists(save_dir):
+    #    rmtree(save_dir,ignore_errors=True)
     os.makedirs(save_dir, exist_ok=True)
+
+    op_llm:BaseChatModel = create_model(llm, cache=llm_cache)
 
     # max qyery num per iteration
     max_query_num = kwargs.get("max_query_num", 3)
@@ -132,7 +84,7 @@ async def deep_research(task, llm, **kwargs):
     browser = None
     browser_context = None
 
-    controller = Controller()
+    controller = BwController()
 
     search_system_prompt = f"""
     You are a **Deep Researcher**, an AI agent specializing in in-depth information gathering and research using a web browser with **automated execution capabilities**. Your expertise lies in formulating comprehensive research plans and executing them meticulously to fulfill complex user requests. You will analyze user instructions, devise a detailed research plan, and determine the necessary search queries to gather the required information.
@@ -172,7 +124,7 @@ async def deep_research(task, llm, **kwargs):
     2.  **Previous Queries:** History Queries.
     3.  **Previous Search Results:** Textual data gathered from prior search queries. If there are no previous search results this string will be empty.
     """
-    search_messages:list[SystemMessage|HumanMessage] = [SystemMessage(content=search_system_prompt)]
+    search_messages:list[BaseMessage|SystemMessage|HumanMessage] = [SystemMessage(content=search_system_prompt)]
 
     record_system_prompt = """
     You are an expert information recorder. Your role is to process user instructions, current search results, and previously recorded information to extract, summarize, and record new, useful information that helps fulfill the user's request. Your output will be a JSON formatted list, where each element represents a piece of extracted information and follows the structure: `{"url": "source_url", "title": "source_title", "summary_content": "concise_summary", "thinking": "reasoning"}`.
@@ -217,7 +169,7 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
 4. **Current Search Query:** The current search query.
 5. **Current Search Results:** Textual data gathered from the most recent search query.
     """
-    record_messages:list[SystemMessage|HumanMessage] = [SystemMessage(content=record_system_prompt)]
+    record_messages:list[BaseMessage|SystemMessage|HumanMessage] = [SystemMessage(content=record_system_prompt)]
 
     search_iteration = 0
     max_search_iterations = kwargs.get("max_search_iterations", 10)  # Limit search iterations to prevent infinite loop
@@ -234,7 +186,7 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
             history_infos_ = json.dumps(history_infos, indent=4)
             query_prompt = f"This is search {search_iteration} of {max_search_iterations} maximum searches allowed.\n User Instruction:{task} \n Previous Queries:\n {history_query_} \n Previous Search Results:\n {history_infos_}\n"
             search_messages.append(HumanMessage(content=query_prompt))
-            ai_query_msg = llm.invoke(search_messages[:1] + search_messages[1:][-1:])
+            ai_query_msg = op_llm.invoke(search_messages[:1] + search_messages[1:][-1:])
             search_messages.append(ai_query_msg)
             if hasattr(ai_query_msg, "reasoning_content"):
                 logger.info(f"{ititle} 🤯 Start Search Deep Thinking: ")
@@ -259,7 +211,7 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
             # Parallel BU agents
             agents = [CustomAgent(
                 task=task,
-                llm=llm,
+                llm=op_llm,
                 browser=browser,
                 browser_context=browser_context,
                 use_vision=use_vision,
@@ -299,7 +251,7 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
                     history_infos_ = json.dumps(history_infos, indent=4)
                     record_prompt = f"User Instruction:{task}. \nPrevious Recorded Information:\n {history_infos_}\n Current Search Iteration: {search_iteration}\n Current Search Plan:\n{query_plan}\n Current Search Query:\n {query_tasks[i]}\n Current Search Results: {query_result_}\n "
                     record_messages.append(HumanMessage(content=record_prompt))
-                    ai_record_msg = llm.invoke(record_messages[:1] + record_messages[-1:])
+                    ai_record_msg = op_llm.invoke(record_messages[:1] + record_messages[-1:])
                     record_messages.append(ai_record_msg)
                     if hasattr(ai_record_msg, "reasoning_content"):
                         logger.info(f"{title} 🤯 Start Record Deep Thinking: ")
@@ -354,7 +306,7 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
         report_prompt = f"User Instruction:{task} \n Search Information:\n {history_infos_}"
         report_messages = [SystemMessage(content=writer_system_prompt),
                            HumanMessage(content=report_prompt)]  # New context for report generation
-        ai_report_msg = llm.invoke(report_messages)
+        ai_report_msg = op_llm.invoke(report_messages)
         if hasattr(ai_report_msg, "reasoning_content"):
             logger.info("🤯 Start Report Deep Thinking: ")
             logger.info(ai_report_msg.reasoning_content)
@@ -397,12 +349,26 @@ class CustomChatGoogleGenerativeAI(ChatGoogleGenerativeAI):
 
 
 async def test_run():
+    tmpdir = os.path.abspath("tmp/deep_research")
+    os.makedirs(tmpdir,exist_ok=True)
 
-    limitter = CustomRateLimiter( requests_per_minute=10, requests_per_day=1500, record_file_path='tmp/limit.json')
-    llm = CustomChatGoogleGenerativeAI(  model="gemini-2.0-flash-exp")
+    llm_cache_path:str = os.path.join(tmpdir,'langchain_cache.db')
+    llm_cache:BaseCache = SQLiteCache(llm_cache_path)
+
+    task_id = 'testrun' # str(uuid4())
+    work_dir = os.path.join( tmpdir,f"{task_id}")
+    if os.path.exists(work_dir):
+        rmtree(work_dir,ignore_errors=True)
+    os.makedirs(work_dir, exist_ok=True)
+
+    #limitter = CustomRateLimiter( requests_per_minute=10, requests_per_day=1500, record_file_path='tmp/limit.json')
+
+    llm:LLM = LLM.Gemini20Flash
+
     task = "調査の動作テストをしてください。ブラウザで何かを検索して、動作テスト結果をレポートして。"
-    task = "write a report about browser-use"
-    report = await deep_research(task,llm)
+    task = "write a report of browser-use of 'https://github.com/browser-use/browser-use'"
+    task = "今週の天気のニュースをまとめて"
+    report = await deep_research( work_dir, task,llm, llm_cache)
     print("------------------------")
     print(report)
 

@@ -15,6 +15,11 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.caches import BaseCache
 from langchain_core.caches import InMemoryCache
 from langchain_community.cache import SQLiteCache
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.rate_limiters import BaseRateLimiter, InMemoryRateLimiter
+from google.api_core.exceptions import ResourceExhausted as GoogleResourceExhausted
+from openai import RateLimitError as OpenaiRateLimitError
+
 import browser_use.controller.service
 from browser_use import ActionModel, Agent, SystemPrompt, Controller,Browser, BrowserConfig
 from browser_use.agent.prompts import AgentMessagePrompt
@@ -38,6 +43,102 @@ from buweb.controller.buw_controller import BwController
 logger:Logger = getLogger(__name__)
 
 os.environ["ANONYMIZED_TELEMETRY"] = "false"
+
+class CustomRateLimiter(BaseRateLimiter):
+    def __init__(self, requests_per_minute:int, requests_per_day:int, record_file_path:str|None ):
+        self.requests_per_minute = requests_per_minute
+        self.requests_per_day = requests_per_day
+        self.requests_in_day:int = 0
+        self.requests_in_minute:list[float] = []
+        dt = datetime.now().strftime("%Y-%m-%d")
+        self.current_date = dt
+        self.record_file_path = record_file_path
+        if record_file_path and os.path.exists(record_file_path):
+            with open(record_file_path, "r") as fr:
+                aaa = json.load(fr)
+                b = aaa.get(f'requests_in_{dt}',0.0)
+                if isinstance(b,int|float):
+                    self.requests_in_day = int(b)
+                c = aaa.get('requests_in_minute',[])
+                if isinstance(c,list):
+                    self.requests_in_minute = c
+    def _save(self,dt):
+        if self.record_file_path:
+            with open(self.record_file_path, "w") as fr:
+                json.dump( {f'requests_in_{dt}': self.requests_in_day, 'requests_in_minute': self.requests_in_minute},fr)
+
+    def _can_acquire(self) ->bool:
+        dt = datetime.now().strftime("%Y-%m-%d")
+        if dt != self.current_date:
+            self.requests_in_day = 0
+            self.current_date = dt
+        if self.requests_in_day>=self.requests_per_day:
+            print(f"RateLimit: requests per day {self.requests_in_day}/{self.requests_per_day}")
+            return False
+        now = time.time()
+        while len(self.requests_in_minute)>0 and now-self.requests_in_minute[0]>60.0:
+            print(f"RateLimit: RPM {len(self.requests_in_minute)}/{self.requests_per_minute}")
+            self.requests_in_minute.pop(0)
+        if len(self.requests_in_minute)>=self.requests_per_minute:
+            return False
+        self.requests_in_day += 1
+        self.requests_in_minute.append(now)
+        self._save(dt)
+        return True
+
+    def acquire(self, *, blocking: bool = True) -> bool:
+        if blocking:
+            while not self._can_acquire():
+                time.sleep(1.0)
+            return True
+        else:
+            return self._can_acquire()
+
+    async def aacquire(self, *, blocking: bool = True) -> bool:
+        if blocking:
+            while not self._can_acquire():
+                await asyncio.sleep(1.0)
+            return True
+        else:
+            return self._can_acquire()
+
+class CustomChatGoogleGenerativeAI(ChatGoogleGenerativeAI):
+
+    def invoke(self,input):
+        i=0
+        msg:str='abc123'
+        while True:
+            i+=1
+            try:
+                return super().invoke(input)
+            except GoogleResourceExhausted as ex1:
+                exmsg = f"{ex1}"
+                if exmsg != msg:
+                    print(exmsg)
+                    msg=exmsg
+                else:
+                    print( '*' if i%2==0 else '+',end='')
+                if i>=30:
+                    raise ex1
+                time.sleep(10.0)
+
+    async def ainvoke(self,input):
+        i=0
+        msg:str='abc123'
+        while True:
+            i+=1
+            try:
+                return await super().ainvoke(input)
+            except GoogleResourceExhausted as ex1:
+                exmsg = f"{ex1}"
+                if exmsg != msg:
+                    print(exmsg)
+                    msg=exmsg
+                else:
+                    print( '*' if i%2==0 else '+',end='')
+                if i>=30:
+                    raise ex1
+                await asyncio.sleep(10.0)
 
 t128k:int = 128000
 t8k:int = 8192
@@ -107,9 +208,9 @@ def create_model( model:str|LLM,temperature:float=0.0,cache:BaseCache|None=None)
             if kw is None:
                 raise ValueError('GEMINI_API_KEY or GOOGLE_API_KEY is not set')
             if llm==LLM.Gemini20FlashThink:
-                return ChatGoogleGenerativeAI(model=llm._full_name, cache=cache, api_key=kw)
+                return CustomChatGoogleGenerativeAI(model=llm._full_name, cache=cache, api_key=kw)
             else:
-                return ChatGoogleGenerativeAI(model=llm._full_name,temperature=temperature, cache=cache, api_key=kw)
+                return CustomChatGoogleGenerativeAI(model=llm._full_name,temperature=temperature, cache=cache, api_key=kw)
         elif llm._grp==9:
             ollama_url = os.getenv('OLLAMA_HOST')
             if not ollama_url:
