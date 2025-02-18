@@ -22,7 +22,6 @@ from browser_use.browser.context import BrowserContext, BrowserContextConfig
 from browser_use.browser.views import BrowserError, BrowserState, BrowserStateHistory
 from browser_use.agent.views import ActionResult, AgentOutput, AgentHistoryList, AgentStepInfo
 #from browser_use.controller.views import ScrollAction
-from browser_use.dom.service import DomService
 from browser_use.dom.views import DOMElementNode, SelectorMap
 from playwright.async_api import Page
 import asyncio
@@ -40,19 +39,32 @@ class BuwAgent(Agent):
                  browser,browser_context=None,
                  controller,
                  use_vision:bool=False,
-                 writer:Callable[[str],None]|None=None,generate_gif:bool|str=False, save_conversation_path:str|None=None,
-                 max_actions_per_step:int=10,
+                 max_failures: int = 3,
+		         retry_delay: int = 10,
                  system_prompt_class: Type[SystemPrompt] = SystemPrompt,
+                 max_input_tokens: int = 128000,
+		         validate_output: bool = False,
+		         message_context: Optional[str] = None,
+                 writer:Callable[[str],None]|None=None,generate_gif:bool|str=False, save_conversation_path:str|None=None,
                  sensitive_data: dict[str,str]|None = None,
+                 available_file_paths: Optional[list[str]] = None,
+                 max_actions_per_step:int=10,
                  ):
         super().__init__(
-            task=task,llm=llm, page_extraction_llm=page_extraction_llm, planner_llm=planner_llm, planner_interval=planner_interval,
+            task=task,llm=llm,
             browser=browser,browser_context=browser_context, controller=controller,
-            max_actions_per_step=max_actions_per_step,
             use_vision=use_vision, use_vision_for_planner=use_vision,
-            generate_gif=generate_gif, save_conversation_path=save_conversation_path,
+            save_conversation_path=save_conversation_path,
+            max_failures=max_failures, retry_delay=retry_delay,
             system_prompt_class=system_prompt_class,
+            max_input_tokens=max_input_tokens,
+            validate_output=validate_output,
+            message_context=message_context,
+            generate_gif=generate_gif,
             sensitive_data=sensitive_data,
+            available_file_paths=available_file_paths,
+            max_actions_per_step=max_actions_per_step,
+            page_extraction_llm=page_extraction_llm, planner_llm=planner_llm, planner_interval=planner_interval,
         )
         self._writer:Callable[[str],None]|None = writer
 

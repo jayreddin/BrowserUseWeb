@@ -47,9 +47,8 @@ class UserInputResult(BaseModel):
     anser: str
 
 class BwController(Controller):
-    def __init__(self):
-        super().__init__()
-        self._browser:Browser|None = None
+    def __init__(self,exclude_actions: list[str] = [],output_model: Optional[Type[BaseModel]] = None):
+        super().__init__(exclude_actions=exclude_actions,output_model=output_model)
         self._register_custom_actions()
 
     def _register_custom_actions(self):
@@ -143,5 +142,6 @@ class BwController(Controller):
 		browser_context: BrowserContext,
 		page_extraction_llm: Optional[BaseChatModel] = None,
 		sensitive_data: Optional[Dict[str, str]] = None,
+		available_file_paths: Optional[list[str]] = None,
 	) -> ActionResult:
-            return await super().act(action,browser_context,page_extraction_llm,sensitive_data)
+            return await super().act(action,browser_context,page_extraction_llm,sensitive_data,available_file_paths)

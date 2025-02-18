@@ -32,7 +32,6 @@ from logging import Logger,getLogger
 from dotenv import load_dotenv
 
 from buweb.agent.buw_agent import BuwAgent
-from buweb.browser.buw_browser import BwBrowserContext
 from buweb.controller.buw_controller import BwController
 from buweb.model.model import LLM, create_model
 
@@ -78,7 +77,7 @@ class BwTask:
             )
 
         self._browser:Browser = Browser( bw_config )
-        self._browser_context:BrowserContext = BwBrowserContext( self._browser, bw_context_config)
+        self._browser_context:BrowserContext = BrowserContext( self._browser, bw_context_config)
         self._agent:BuwAgent|None = None
         self._sensitive_data=sensitive_data
 
