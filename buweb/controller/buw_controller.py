@@ -28,6 +28,7 @@ from playwright.async_api import Page
 import asyncio
 from typing import Callable, Optional, Dict,Literal, Type
 from pydantic import BaseModel
+import pyperclip
 from logging import Logger,getLogger
 from dotenv import load_dotenv
 
@@ -53,6 +54,24 @@ class BwController(Controller):
 
     def _register_custom_actions(self):
         """Register all default browser actions"""
+
+        # import from browser-use-web-ui
+        @self.registry.action("Copy text to clipboard")
+        def copy_to_clipboard(text: str):
+            pyperclip.copy(text)
+            return ActionResult(extracted_content=text)
+
+        # import from browser-use-web-ui
+        @self.registry.action("Paste text from clipboard")
+        async def paste_from_clipboard(browser: BrowserContext):
+            text = pyperclip.paste()
+            # send text to browser
+            page = await browser.get_current_page()
+            await page.keyboard.type(text)
+
+            return ActionResult(extracted_content=text)
+
+        # customize scroll action
         @self.registry.action(
 			"Scroll down half a page with 'half' or a full page with 'full'.",
 			param_model=ScrAction,
@@ -78,6 +97,8 @@ class BwController(Controller):
                 extracted_content=msg,
                 include_in_memory=True,
             )
+
+        # customize scroll action
         @self.registry.action(
 			"Scroll up half a page with 'half' or a full page with 'full'.",
             param_model=ScrAction,
@@ -136,12 +157,12 @@ class BwController(Controller):
         #     # ユーザーの入力をメモリに保存
         #     return ActionResult(extracted_content=user_input, include_in_memory=True)
 
-    async def act(
-		self,
-		action: ActionModel,
-		browser_context: BrowserContext,
-		page_extraction_llm: Optional[BaseChatModel] = None,
-		sensitive_data: Optional[Dict[str, str]] = None,
-		available_file_paths: Optional[list[str]] = None,
-	) -> ActionResult:
-            return await super().act(action,browser_context,page_extraction_llm,sensitive_data,available_file_paths)
+    # async def act(
+	# 	self,
+	# 	action: ActionModel,
+	# 	browser_context: BrowserContext,
+	# 	page_extraction_llm: Optional[BaseChatModel] = None,
+	# 	sensitive_data: Optional[Dict[str, str]] = None,
+	# 	available_file_paths: Optional[list[str]] = None,
+	# ) -> ActionResult:
+    #         return await super().act(action,browser_context,page_extraction_llm,sensitive_data,available_file_paths)

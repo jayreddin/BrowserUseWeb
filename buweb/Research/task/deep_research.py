@@ -1,90 +1,81 @@
 import pdb
 
-from dotenv import load_dotenv
-
-load_dotenv('config.env')
 import asyncio
-import sys,os
+import os
+import sys
 os.environ["ANONYMIZED_TELEMETRY"] = "false"
+from logging import getLogger, Logger
 #sys.path.append(os.path.abspath('.'))
 sys.path.append(os.path.abspath('.'))
 #sys.path.append(os.path.abspath('./src/Research'))
 import time
 from datetime import datetime
 from shutil import rmtree
-from logging import getLogger, Logger
 from pprint import pprint
 from uuid import uuid4
 #from src.utils import utils
+from buweb.Research.agent.custom_agent import CustomAgent
 import json
 import re
+#from browser_use.agent.service import Agent
+#from browser_use.browser.browser import BrowserConfig, Browser
+from browser_use.agent.views import ActionResult
+from browser_use.browser.context import BrowserContext
+from browser_use.controller.service import Controller, DoneAction
+from main_content_extractor import MainContentExtractor
+from langchain.schema import BaseMessage, SystemMessage, HumanMessage
 from json_repair import repair_json
+from buweb.Research.agent.custom_prompts import CustomSystemPrompt, CustomAgentMessagePrompt
+from buweb.controller.buw_controller import BwController as CustomController
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain.schema import BaseMessage, SystemMessage, HumanMessage
 from langchain_core.rate_limiters import BaseRateLimiter, InMemoryRateLimiter
 from langchain_core.caches import BaseCache
 from langchain_community.cache import SQLiteCache
 
 # from browser_use.controller.service import Controller
-
-from buweb.controller.buw_controller import BwController
-from buweb.browser.buw_browser import BwBrowserContext
-from buweb.model.model import LLM, create_model
-from buweb.Research.agent.custom_agent import CustomAgent
-from buweb.Research.agent.custom_prompts import CustomSystemPrompt
+from buweb.utils.utils import dump, safe_close
 
 alogger = getLogger(__name__)
-
-
-def fmtdict(msg:dict,indent:str=""):
-    for k,v in msg.items():
-        if isinstance(v,dict):
-            yield f"{indent}{str(k)}:"
-            yield from fmtdict(v,indent+"  ")
-        else:
-            yield f"{indent}{str(k)}: {str(v)}"
-
-class dump:
-    def __init__(self,logger:Logger|None):
-        self.logger = logger
-
-    def fmt(self, msg:str|dict):
-        if isinstance(msg,dict):
-            msg = "\n".join(fmtdict(msg))
-        return msg
-
-    def info(self,msg:str|dict):
-        print(self.fmt(msg))
-
-    def error(self,msg:str|dict):
-        print(self.fmt(msg))
-
-async def safe_close(item):
-    try:
-        await item.close() # 
-    except:
-        pass
-
 logger = dump(alogger)
 
-async def deep_research( save_dir, task, llm:LLM, llm_cache:BaseCache, **kwargs):
-    #task_id = 'testrun' # str(uuid4())
-    #save_dir = kwargs.get("save_dir", os.path.join(f"./tmp/deep_research/{task_id}"))
+async def deep_research(task, llm, agent_state=None, **kwargs):
+    task_id = 'testrun' # str(uuid4())
+    save_dir = kwargs.get("save_dir", os.path.join(f"./tmp/deep_research/{task_id}"))
     logger.info(f"Save Deep Research at: {save_dir}")
     #if os.path.exists(save_dir):
     #    rmtree(save_dir,ignore_errors=True)
     os.makedirs(save_dir, exist_ok=True)
 
-    op_llm:BaseChatModel = create_model(llm, cache=llm_cache)
-
+    llm_cache:BaseCache|None = kwargs.get("llm_cache")
     # max qyery num per iteration
     max_query_num = kwargs.get("max_query_num", 3)
 
     browser = None
     browser_context = None
 
-    controller = BwController()
+    controller = CustomController()
+
+    @controller.registry.action(
+        'Extract page content to get the pure markdown.',
+    )
+    async def extract_content(browser: BrowserContext):
+        page = await browser.get_current_page()
+        # use jina reader
+        url = page.url
+
+        jina_url = f"https://r.jina.ai/{url}"
+        await page.goto(jina_url)
+        output_format = 'markdown'
+        content = MainContentExtractor.extract(  # type: ignore
+            html=await page.content(),
+            output_format=output_format,
+        )
+        # go back to org url
+        await page.go_back()
+        msg = f'Extracted page content:\n {content}\n'
+        logger.info(msg)
+        return ActionResult(extracted_content=msg)
 
     search_system_prompt = f"""
     You are a **Deep Researcher**, an AI agent specializing in in-depth information gathering and research using a web browser with **automated execution capabilities**. Your expertise lies in formulating comprehensive research plans and executing them meticulously to fulfill complex user requests. You will analyze user instructions, devise a detailed research plan, and determine the necessary search queries to gather the required information.
@@ -186,7 +177,7 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
             history_infos_ = json.dumps(history_infos, indent=4)
             query_prompt = f"This is search {search_iteration} of {max_search_iterations} maximum searches allowed.\n User Instruction:{task} \n Previous Queries:\n {history_query_} \n Previous Search Results:\n {history_infos_}\n"
             search_messages.append(HumanMessage(content=query_prompt))
-            ai_query_msg = op_llm.invoke(search_messages[:1] + search_messages[1:][-1:])
+            ai_query_msg = llm.invoke(search_messages[:1] + search_messages[1:][-1:])
             search_messages.append(ai_query_msg)
             if hasattr(ai_query_msg, "reasoning_content"):
                 logger.info(f"{ititle} 🤯 Start Search Deep Thinking: ")
@@ -209,13 +200,17 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
 
             # 2. Perform Web Search and Auto exec
             # Parallel BU agents
+            add_infos = "1. Please click on the most relevant link to get information and go deeper, instead of just staying on the search page. \n" \
+                        "2. When opening a PDF file, please remember to extract the content using extract_content instead of simply opening it for the user to view.\n"
             agents = [CustomAgent(
                 task=task,
-                llm=op_llm,
+                llm=llm,
+                add_infos=add_infos,
                 browser=browser,
                 browser_context=browser_context,
                 use_vision=use_vision,
                 system_prompt_class=CustomSystemPrompt,
+                agent_prompt_class=CustomAgentMessagePrompt,
                 max_actions_per_step=5,
                 controller=controller,
             ) for task in query_tasks]
@@ -251,7 +246,7 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
                     history_infos_ = json.dumps(history_infos, indent=4)
                     record_prompt = f"User Instruction:{task}. \nPrevious Recorded Information:\n {history_infos_}\n Current Search Iteration: {search_iteration}\n Current Search Plan:\n{query_plan}\n Current Search Query:\n {query_tasks[i]}\n Current Search Results: {query_result_}\n "
                     record_messages.append(HumanMessage(content=record_prompt))
-                    ai_record_msg = op_llm.invoke(record_messages[:1] + record_messages[-1:])
+                    ai_record_msg = llm.invoke(record_messages[:1] + record_messages[-1:])
                     record_messages.append(ai_record_msg)
                     if hasattr(ai_record_msg, "reasoning_content"):
                         logger.info(f"{title} 🤯 Start Record Deep Thinking: ")
@@ -267,6 +262,21 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
         logger.info("\nFinish Searching, Start Generating Report...")
 
         # 5. Report Generation in Markdown (or JSON if you prefer)
+        return await generate_final_report(task, history_infos, save_dir, llm)
+
+    except Exception as e:
+        logger.error(f"Deep research Error: {e}")
+        return await generate_final_report(task, history_infos, save_dir, llm, str(e))
+    finally:
+        await safe_close(browser)
+        await safe_close(browser_context)
+        logger.info("Browser closed.")
+
+async def generate_final_report(task, history_infos, save_dir, llm, error_msg=None):
+    """Generate report from collected information with error handling"""
+    try:
+        logger.info("\nAttempting to generate final report from collected data...")
+
         writer_system_prompt = """
         You are a **Deep Researcher** and a professional report writer tasked with creating polished, high-quality reports that fully meet the user's needs, based on the user's instructions and the relevant information provided. You will write the report using Markdown format, ensuring it is both informative and visually appealing.
 
@@ -306,49 +316,35 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
         report_prompt = f"User Instruction:{task} \n Search Information:\n {history_infos_}"
         report_messages = [SystemMessage(content=writer_system_prompt),
                            HumanMessage(content=report_prompt)]  # New context for report generation
-        ai_report_msg = op_llm.invoke(report_messages)
+        ai_report_msg = llm.invoke(report_messages)
         if hasattr(ai_report_msg, "reasoning_content"):
             logger.info("🤯 Start Report Deep Thinking: ")
             logger.info(ai_report_msg.reasoning_content)
             logger.info("🤯 End Report Deep Thinking")
         report_content = ai_report_msg.content
-        # Remove ```markdown or ``` at the *very beginning* and ``` at the *very end*, with optional whitespace
         report_content = re.sub(r"^```\s*markdown\s*|^\s*```|```\s*$", "", report_content, flags=re.MULTILINE)
         report_content = report_content.strip()
+
+        # Add error notification to the report
+        if error_msg:
+            report_content = f"## ⚠️ Research Incomplete - Partial Results\n" \
+                            f"**The research process was interrupted by an error:** {error_msg}\n\n" \
+                            f"{report_content}"
+            
         report_file_path = os.path.join(save_dir, "final_report.md")
         with open(report_file_path, "w", encoding="utf-8") as f:
             f.write(report_content)
         logger.info(f"Save Report at: {report_file_path}")
         return report_content, report_file_path
 
-    except Exception as e:
-        logger.error(f"Deep research Error: {e}")
-        return "", None
-    finally:
-        await safe_close(browser)
-        await safe_close(browser_context)
-        logger.info("Browser closed.")
-
-from langchain_google_genai import ChatGoogleGenerativeAI
-from google.api_core.exceptions import ResourceExhausted as GoogleResourceExhausted
-from openai import RateLimitError as OpenaiRateLimitError
-class CustomChatGoogleGenerativeAI(ChatGoogleGenerativeAI):
-
-    def invoke(self,input):
-        i=0
-        while True:
-            i+=1
-            try:
-                return super().invoke(input)
-            except GoogleResourceExhausted as ex1:
-                if i>=30:
-                    raise ex1
-                if i==1:
-                    print(f"{ex1}")
-                time.sleep(10.0)
-
+    except Exception as report_error:
+        logger.error(f"Failed to generate partial report: {report_error}")
+        return f"Error generating report: {str(report_error)}", None
 
 async def test_run():
+    from dotenv import load_dotenv
+    load_dotenv('config.env')
+    from buweb.model.model import LLM, create_model
     tmpdir = os.path.abspath("tmp/deep_research")
     os.makedirs(tmpdir,exist_ok=True)
 
@@ -364,11 +360,11 @@ async def test_run():
     #limitter = CustomRateLimiter( requests_per_minute=10, requests_per_day=1500, record_file_path='tmp/limit.json')
 
     llm:LLM = LLM.Gemini20Flash
-
+    op_llm:BaseChatModel = create_model(llm, cache=llm_cache)
     task = "調査の動作テストをしてください。ブラウザで何かを検索して、動作テスト結果をレポートして。"
     task = "write a report of browser-use of 'https://github.com/browser-use/browser-use'"
     task = "今週の天気のニュースをまとめて"
-    report = await deep_research( work_dir, task,llm, llm_cache)
+    report = await deep_research( task, op_llm, save_dir=work_dir, llm_cache=llm_cache)
     print("------------------------")
     print(report)
 

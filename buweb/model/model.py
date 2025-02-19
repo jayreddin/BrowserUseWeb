@@ -3,6 +3,7 @@ os.environ["ANONYMIZED_TELEMETRY"] = "false"
 import json
 from datetime import datetime
 import time
+import abc
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
@@ -35,10 +36,6 @@ from typing import Callable, Optional, Dict,Literal, Type
 from pydantic import BaseModel
 from logging import Logger,getLogger
 from dotenv import load_dotenv
-
-from buweb.agent.buw_agent import BuwAgent
-from buweb.browser.buw_browser import BwBrowserContext
-from buweb.controller.buw_controller import BwController
 
 logger:Logger = getLogger(__name__)
 
@@ -104,13 +101,13 @@ class CustomRateLimiter(BaseRateLimiter):
 
 class CustomChatGoogleGenerativeAI(ChatGoogleGenerativeAI):
 
-    def invoke(self,input):
+    def invoke(self,input, config=None, *, stop=None, **kwargs ):
         i=0
         msg:str='abc123'
         while True:
             i+=1
             try:
-                return super().invoke(input)
+                return super().invoke(input, config, stop=stop, **kwargs)
             except GoogleResourceExhausted as ex1:
                 exmsg = f"{ex1}"
                 if exmsg != msg:
@@ -122,13 +119,13 @@ class CustomChatGoogleGenerativeAI(ChatGoogleGenerativeAI):
                     raise ex1
                 time.sleep(10.0)
 
-    async def ainvoke(self,input):
+    async def ainvoke(self,input, config=None, *, stop=None, **kwargs ):
         i=0
         msg:str='abc123'
         while True:
             i+=1
             try:
-                return await super().ainvoke(input)
+                return await super().ainvoke(input, config, stop=stop, **kwargs)
             except GoogleResourceExhausted as ex1:
                 exmsg = f"{ex1}"
                 if exmsg != msg:
@@ -147,31 +144,36 @@ t32k:int = 32768
 t64k:int = 65536
 t128k:int = 131072
 
+class LLMProvider(Enum):
+    openai = 0
+    google = 1
+    ollama = 9
+
 class LLM(Enum):
-    Gpt4o = ( "gpt-4o", 0, t64k )
-    Gpt4oMini = ( "gpt-4o-mini", 0, t64k )
-    O3Mini = ( "o3-mini", 0, t64k )
-    Gemini20Flash = ( "gemini-2.0-flash-exp", 1, t64k )
-    Gemini20FlashThink = ( "gemini-2.0-flash-thinking-exp-01-21", 1, t64k )
-    Gemini20Pro = ( "gemini-2.0-pro-exp-02-05", 1, t64k )
+    Gpt4o = ( "gpt-4o", LLMProvider.openai, t64k )
+    Gpt4oMini = ( "gpt-4o-mini", LLMProvider.openai, t64k )
+    O3Mini = ( "o3-mini", LLMProvider.openai, t64k )
+    Gemini20Flash = ( "gemini-2.0-flash-exp", LLMProvider.google, t64k )
+    Gemini20FlashThink = ( "gemini-2.0-flash-thinking-exp-01-21", LLMProvider.google, t64k )
+    Gemini20Pro = ( "gemini-2.0-pro-exp-02-05", LLMProvider.google, t64k )
 
-    Phi3 = ( "phi3:latest", 9, t64k )
-    Arrowpro = ( "hawkclaws/datapilot-arrowpro-7b-robinhood:latest", 9, t64k )
+    Phi3 = ( "phi3:latest", LLMProvider.ollama, t64k )
+    Arrowpro = ( "hawkclaws/datapilot-arrowpro-7b-robinhood:latest", LLMProvider.ollama, t64k )
 
-    LlamaTranslate = ( "7shi/llama-translate:8b-q4_K_M", 9, t64k )
-    DeepSeekV3 = ( "nezahatkorkmaz/deepseek-v3:latest", 9, t64k )
-    DeepSeekR1_1B = ( "deepseek-r1:1.5b", 9, t64k )
-    DeepSeekR1_cline_tools_1B = ( "tom_himanen/deepseek-r1-roo-cline-tools:1.5b", 9, t64k )
-    DeepSeekR1_cline_tools_8B = ( "tom_himanen/deepseek-r1-roo-cline-tools:8b", 9, t64k )
-    DeepSeekR1_coder_tools_1B = ( "Mrs_peanutbutt3r/deepseek-r1-coder-tools:1.5b", 9, t64k )
-    DeepSeekR1_coder_tools_8B = ( "Mrs_peanutbutt3r/deepseek-r1-coder-tools:7b", 9, t64k )
-    DeepSeekR1_tool_call_7B = ( "MFDoom/deepseek-r1-tool-calling:7b", 9, t64k )
-    DeepSeekR1_tool_call_1B = ( "MFDoom/deepseek-r1-tool-calling:1.5b", 9, t64k )
+    LlamaTranslate = ( "7shi/llama-translate:8b-q4_K_M", LLMProvider.ollama, t64k )
+    DeepSeekV3 = ( "nezahatkorkmaz/deepseek-v3:latest", LLMProvider.ollama, t64k )
+    DeepSeekR1_1B = ( "deepseek-r1:1.5b", LLMProvider.ollama, t64k )
+    DeepSeekR1_cline_tools_1B = ( "tom_himanen/deepseek-r1-roo-cline-tools:1.5b", LLMProvider.ollama, t64k )
+    DeepSeekR1_cline_tools_8B = ( "tom_himanen/deepseek-r1-roo-cline-tools:8b", LLMProvider.ollama, t64k )
+    DeepSeekR1_coder_tools_1B = ( "Mrs_peanutbutt3r/deepseek-r1-coder-tools:1.5b", LLMProvider.ollama, t64k )
+    DeepSeekR1_coder_tools_8B = ( "Mrs_peanutbutt3r/deepseek-r1-coder-tools:7b", LLMProvider.ollama, t64k )
+    DeepSeekR1_tool_call_7B = ( "MFDoom/deepseek-r1-tool-calling:7b", LLMProvider.ollama, t64k )
+    DeepSeekR1_tool_call_1B = ( "MFDoom/deepseek-r1-tool-calling:1.5b", LLMProvider.ollama, t64k )
 
-    def __init__(self, value: str, grp:int, sz:int):
+    def __init__(self, value: str, grp:LLMProvider, sz:int):
         self.__value__ = value
         self._full_name:str = value
-        self._grp:int = grp
+        self._grp:LLMProvider = grp
         self._sz:int = sz
 
     @staticmethod
@@ -194,12 +196,12 @@ class LLM(Enum):
 def create_model( model:str|LLM,temperature:float=0.0,cache:BaseCache|None=None) -> BaseChatModel:
     llm = LLM.get_llm(model)
     if llm:
-        if llm._grp==0:
+        if llm._grp==LLMProvider.openai:
             openai_api_key = os.getenv('OPENAI_API_KEY')
             if not openai_api_key:
                 raise ValueError('OPENAI_API_KEY is not set')
             return ChatOpenAI(model=llm._full_name, temperature=temperature, cache=cache)
-        elif llm._grp==1:
+        elif llm._grp==LLMProvider.google:
             kw = None
             if os.getenv('GEMINI_API_KEY') is not None:
                 kw = SecretStr(os.getenv('GEMINI_API_KEY')) # type: ignore
@@ -211,7 +213,7 @@ def create_model( model:str|LLM,temperature:float=0.0,cache:BaseCache|None=None)
                 return CustomChatGoogleGenerativeAI(model=llm._full_name, cache=cache, api_key=kw)
             else:
                 return CustomChatGoogleGenerativeAI(model=llm._full_name,temperature=temperature, cache=cache, api_key=kw)
-        elif llm._grp==9:
+        elif llm._grp==LLMProvider.ollama:
             ollama_url = os.getenv('OLLAMA_HOST')
             if not ollama_url:
                 raise ValueError('OLLAMA_HOST is not set')
