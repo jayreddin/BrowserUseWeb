@@ -2,8 +2,7 @@
 import os,sys,shutil
 os.environ["ANONYMIZED_TELEMETRY"] = "false"
 import asyncio
-from queue import Empty
-from flask import Flask, jsonify, send_from_directory, Response, request, make_response, abort
+from quart import Quart, request, jsonify, send_from_directory, Response
 from concurrent.futures import ThreadPoolExecutor
 import traceback
 from dotenv import load_dotenv
@@ -29,28 +28,18 @@ def cleanup_sessions():
     if session_store:
         asyncio.run( session_store.cleanup_all() )
 
-app = Flask(__name__)
+app = Quart(__name__)
 
-@app.route('/')
-async def index():
-    return make_response(send_from_directory('static', 'index.html'))
-
-@app.route('/config.html')
-async def config():
-    return make_response(send_from_directory('static', 'config.html'))
-
-@app.route('/favicon.ico')
-async def favicon():
-    return send_from_directory('static', 'favicon.ico')
-
-@app.route('/style.css')
-async def style_css():
-    return send_from_directory('static', 'style.css')
+@app.route('/', defaults={'path': 'index.html'})
+@app.route('/<path:path>')
+async def style_css(path):
+    print(f"REQ:{path}")
+    return await send_from_directory('static', path)
 
 @app.route('/novnc/<path:path>')
 async def novnc_files(path):
     """noVNCのファイルを提供"""
-    return send_from_directory(novncdir, path)
+    return await send_from_directory(novncdir, path)
 
 @app.route('/api/llm_list')
 async def llm_list():
@@ -68,7 +57,7 @@ async def llm_list():
 async def config_api():
     try:
         if request.method == 'POST':
-            data = request.get_json()
+            data = await request.get_json()
             operator = data.get('operator_llm')
             planner = data.get('planner_llm')
             max_sessions = data.get('max_sessions')
@@ -92,6 +81,59 @@ async def config_api():
         traceback.print_exc()
         return jsonify({'status': 'error','msg': str(e)}), 500
 
+def compare_dicts(d1, d2):
+    if d1.keys() != d2.keys():
+        return False
+    for key in d1:
+        if isinstance(d1[key], dict) and isinstance(d2[key], dict):
+            if not compare_dicts(d1[key], d2[key]):
+                return False
+        else:
+            if d1[key] != d2[key]:
+                return False
+    return True
+
+async def session_stream(server_addr,client_addr):
+    ses = None
+    try:
+        session_store.incr()
+        ses = await session_store.create(server_addr,client_addr)
+        if ses is None:
+            res = { 'status': 'success', 'msg': '接続数制限中' }
+            yield f"data: {json.dumps(res, ensure_ascii=False)}\n\n"
+            while ses is None:
+                await asyncio.sleep(1)
+                ses = await session_store.create(server_addr,client_addr)
+
+        res = ses.get_status()
+        res['msg'] = '接続完了'
+        yield f"data: {json.dumps(res, ensure_ascii=False)}\n\n"
+
+        before_res = {}
+        before_time = 0.0
+        while ses is not None:
+            try:
+                msg = await ses.get_msg(timeout=1)
+                res = ses.get_status()
+                now = time.time()
+                if msg is None:
+                    if (now-before_time)<10 and compare_dicts(before_res, res):
+                        continue
+                else:
+                    res['msg'] = msg
+                yield f"data: {json.dumps(res, ensure_ascii=False)}\n\n"
+                before_res = res
+                before_time = now
+            except Exception as ex:
+                traceback.print_exc()
+                break
+    except Exception as ex:
+        traceback.print_exc()
+    finally:
+        if ses is not None:
+            await session_store.remove(ses.session_id)
+        session_store.decr()
+
 @app.route('/api/<path:api>', methods=['GET','POST'])
 async def service_api(api):
     try:
@@ -103,40 +145,10 @@ async def service_api(api):
         if api == 'session':
             if ses is not None:
                 return jsonify({'status': 'error', 'msg': 'unauth'}), 401
-            def sesgenerate():
-                ses = None
-                try:
-                    session_store.incr()
-                    ses = asyncio.run( session_store.create(server_addr,client_addr))
-                    if ses is None:
-                        res = { 'status': 'success', 'msg': '接続数制限中' }
-                        yield f"data: {json.dumps(res, ensure_ascii=False)}\n\n"
-                        while ses is None:
-                            time.sleep(1.0)
-                            ses = asyncio.run( session_store.create(server_addr,client_addr))
-
-                    res = ses.get_status()
-                    res['msg'] = '接続完了'
-                    yield f"data: {json.dumps(res, ensure_ascii=False)}\n\n"
-
-                    while ses is not None:
-                        try:
-                            try:
-                                msg = ses.message_queue.get(timeout=1.0)
-                            except Empty:
-                                msg = None
-                            ses.touch()
-                            res = ses.get_status()
-                            if msg is not None:
-                                res['msg'] = msg
-                            yield f"data: {json.dumps(res, ensure_ascii=False)}\n\n"
-                        except:
-                            break
-                finally:
-                    if ses is not None:
-                        asyncio.run( session_store.remove(ses.session_id) )
-                    session_store.decr()
-            return Response(sesgenerate(), mimetype='text/event-stream')   
+            headers = { "Content-Type": "text/event-stream" }
+            ress = Response(session_stream(server_addr,client_addr), headers=headers, mimetype='text/event-stream')   
+            ress.timeout = None # disable timeout
+            return ress
   
         # session意外の場合
         if ses is None:
@@ -147,7 +159,7 @@ async def service_api(api):
             return jsonify(res)
 
         elif api=='task_start':
-            data = request.get_json()
+            data = await request.get_json()
             task = data.get('task', '')
             sensitive_data = data.get('sensitive_data', None)
             expand:bool = data.get('expand','') == 'true'
@@ -170,10 +182,11 @@ async def service_api(api):
             return jsonify(res)
 
         elif api=='store_file':
-            if 'file' not in request.files:
+            upfiles = await request.files
+            if 'file' not in upfiles:
                 return jsonify({'status': 'error', 'msg': 'No file part'})
             
-            file = request.files['file']
+            file = upfiles['file']
             if file.filename is None or file.filename == '':
                 return jsonify({'status': 'error', 'msg': 'No selected file'})
             
@@ -193,12 +206,7 @@ async def service_api(api):
         return jsonify({'status': 'error','msg': str(e)}), 500
     finally:
         try:
-            current_loop = asyncio.get_running_loop()
-            while True:
-                tasks = {task for task in asyncio.all_tasks(loop=current_loop) if task is not asyncio.current_task()}
-                if not tasks:
-                    break
-                await asyncio.sleep(0.1)
+            pass
         except:
             pass
 
@@ -216,8 +224,10 @@ def main():
     signal.signal(signal.SIGTERM, sig_handler)
 
     try:
-        # flaskサーバ起動
-        app.run(host='0.0.0.0', port=5000, threaded=True)
+        # サーバ起動
+        #app.config['BODY_TIMEOUT'] = 60
+        #app.config['RESPONSE_TIMEOUT'] = 60
+        app.run(host='0.0.0.0', port=5000, debug=False )
     finally:
         # 終了処理
         signal.signal(signal.SIGTERM, signal.SIG_IGN)

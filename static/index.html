@@ -137,9 +137,10 @@
 
             }
         };
-        SessionKeeper.onerror = () => {
-            console.log('keep error')
+        SessionKeeper.onerror = (e) => {
+            console.log('keep error',e)
             SessionKeeper.close();
+            logPrint('切断されました')
         };
 
         function stopVNC() {

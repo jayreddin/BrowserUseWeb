@@ -1,10 +1,11 @@
 import sys, os, shutil, subprocess, traceback, tempfile
 from datetime import datetime, timedelta
 import time
-from queue import Queue
+from queue import Queue, Empty
 from threading import Lock
 from concurrent.futures import ThreadPoolExecutor, Future
 import asyncio
+from asyncio import Task
 import aiohttp
 import random,string
 from langchain_core.caches import BaseCache
@@ -134,6 +135,19 @@ class BwSession:
         self.touch()
         self.message_queue.put(msg)
 
+    async def get_msg(self,*,timeout:float=1.0):
+        break_time = time.time() + max(0, timeout)
+        while True:
+            try:
+                self.touch()
+                return self.message_queue.get_nowait()
+            except Empty as ex:
+                now = time.time()
+                if now<break_time:
+                    await asyncio.sleep(0.2)
+                    continue
+                return None
+
     def is_vnc_running(self) -> int:
         return self.display_num if self.display_num>0 and is_proc(self.vnc_proc) else 0
 
@@ -153,6 +167,7 @@ class BwSession:
             return 0
 
     def get_status(self) ->dict:
+        self.touch()
         res = {
             'status': 'success',
             'sid': self.session_id,
@@ -370,10 +385,12 @@ class BwSession:
     async def cleanup(self) -> None:
         """リソースをクリーンアップ"""
         await self.stop_browser()
+        if self.task:
+            await self.task.stop()
         try:
             shutil.rmtree(self.WorkDir)
         except Exception as e:
-            logger.exception(f"[{self.session_id}] VNCサーバー停止中にエラーが発生: {str(e)}")
+            logger.exception(f"[{self.session_id}] 停止中にエラーが発生: {str(e)}")
 
 # セッションデータを保存する辞書
 class SessionStore:
@@ -388,7 +405,7 @@ class SessionStore:
         self.cleanup_interval:timedelta = timedelta(minutes=30)
         self.session_timeout:timedelta = timedelta(hours=2)
         self._last_cleanup:datetime = datetime.now()
-        self._sweeper_futute:Future|None = None
+        self._sweeper_task:Task|None = None
         self._llm_cache_path:str = os.path.join(self.SessionsDir,'langchain_cache.db')
         self._llm_cache:BaseCache = SQLiteCache(self._llm_cache_path)
         # 設定
@@ -396,29 +413,29 @@ class SessionStore:
         self._planner_llm:LLM|None = None
 
     async def _start_sweeper(self):
-        if self._sweeper_futute is None:
-            self._sweeper_futute = self.Pool.submit( self._sweeper_task )
+        if self._sweeper_task is None:
+            self._sweeper_task = asyncio.create_task(self._sweeper_loop())
 
-    def _sweeper_task(self):
+    async def _sweeper_loop(self):
         try:
-            logger.info("start swepper")
+            logger.info("start sweeper")
             while True:
                 # 広告ブロック用のhostsファイルを更新する
                 now = time.time()
                 last_mod_sec:float = os.path.getmtime(self.hostsfile) if os.path.exists(self.hostsfile) else 0.0
                 if (now-last_mod_sec)>3600.0:
-                    asyncio.run( download_hosts_file_async(self.hostsfile) )
+                    await download_hosts_file_async(self.hostsfile)
                 # セッションをクリーンアップする
-                asyncio.run( self.cleanup_old_sessions() )
+                await self.cleanup_old_sessions()
                 if len(self.sessions)==0:
-                    self._sweeper_futute = None
+                    self._sweeper_task = None
                     return
-                time.sleep(2.0)
+                await asyncio.sleep(2.0)
         except:
             logger.exception("error in sweeper")
         finally:
-            logger.info("end swepper")
-            self._sweeper_futute = None
+            logger.info("end sweeper")
+            self._sweeper_task = None
 
     async def cleanup_old_sessions(self):
         """古いセッションをクリーンアップ"""
@@ -499,6 +516,10 @@ class SessionStore:
             del self.sessions[session_id]
 
     async def cleanup_all(self):
+        try:
+            self.Pool.shutdown(wait=True,cancel_futures=True)
+        except:
+            pass
         for session_id in list(self.sessions.keys()):
             await self.remove(session_id)
 
