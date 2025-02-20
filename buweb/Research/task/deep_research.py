@@ -5,9 +5,6 @@ import os
 import sys
 os.environ["ANONYMIZED_TELEMETRY"] = "false"
 from logging import getLogger, Logger
-#sys.path.append(os.path.abspath('.'))
-sys.path.append(os.path.abspath('.'))
-#sys.path.append(os.path.abspath('./src/Research'))
 import time
 from datetime import datetime
 from shutil import rmtree
@@ -18,7 +15,7 @@ from buweb.Research.agent.custom_agent import CustomAgent
 import json
 import re
 #from browser_use.agent.service import Agent
-#from browser_use.browser.browser import BrowserConfig, Browser
+from browser_use.browser.browser import BrowserConfig, Browser
 from browser_use.agent.views import ActionResult
 from browser_use.browser.context import BrowserContext
 from browser_use.controller.service import Controller, DoneAction
@@ -31,7 +28,7 @@ from buweb.controller.buw_controller import BwController as CustomController
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.rate_limiters import BaseRateLimiter, InMemoryRateLimiter
 from langchain_core.caches import BaseCache
-from langchain_community.cache import SQLiteCache
+
 
 # from browser_use.controller.service import Controller
 from buweb.utils.utils import dump, safe_close
@@ -39,7 +36,16 @@ from buweb.utils.utils import dump, safe_close
 alogger = getLogger(__name__)
 logger = dump(alogger)
 
-async def deep_research(task, llm, agent_state=None, **kwargs):
+from typing import Callable
+def dmy_write(msg):
+    pass
+
+async def deep_research(task:str, llm:BaseChatModel, agent_state=None,
+                        browser:Browser|None=None,
+                        browser_context:BrowserContext|None=None,
+                        sensitive_data:dict|None=None,
+                        writer:Callable[[str],None]=dmy_write, inter:dict={},
+                        **kwargs) ->tuple[str,str|None]:
     task_id = 'testrun' # str(uuid4())
     save_dir = kwargs.get("save_dir", os.path.join(f"./tmp/deep_research/{task_id}"))
     logger.info(f"Save Deep Research at: {save_dir}")
@@ -51,8 +57,8 @@ async def deep_research(task, llm, agent_state=None, **kwargs):
     # max qyery num per iteration
     max_query_num = kwargs.get("max_query_num", 3)
 
-    browser = None
-    browser_context = None
+    #browser = None
+    #browser_context = None
 
     controller = CustomController()
 
@@ -173,6 +179,7 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
             search_iteration += 1
             ititle = f"Ite:{search_iteration:02d}"
             logger.info(f"{ititle} Start Search...")
+            writer(f"{ititle} Start Search...")
             history_query_ = json.dumps(history_query, indent=4)
             history_infos_ = json.dumps(history_infos, indent=4)
             query_prompt = f"This is search {search_iteration} of {max_search_iterations} maximum searches allowed.\n User Instruction:{task} \n Previous Queries:\n {history_query_} \n Previous Search Results:\n {history_infos_}\n"
@@ -181,7 +188,7 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
             search_messages.append(ai_query_msg)
             if hasattr(ai_query_msg, "reasoning_content"):
                 logger.info(f"{ititle} 🤯 Start Search Deep Thinking: ")
-                logger.info(ai_query_msg.reasoning_content)
+                logger.info(ai_query_msg.reasoning_content) # type: ignore
                 logger.info(f"{ititle} 🤯 End Search Deep Thinking")
             ai_query_contents:str = ai_query_msg.content.replace("```json", "").replace("```", "")
             ai_query_contenta = repair_json(ai_query_contents)
@@ -189,6 +196,8 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
             query_plan = ai_query_content["plan"]
             logger.info(f"{ititle} Current Iteration Planing:")
             logger.info(query_plan)
+            writer(f"{ititle} Current Iteration Planing:")
+            writer(query_plan)
             query_tasks = ai_query_content["queries"]
             if not query_tasks:
                 break
@@ -197,6 +206,8 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
                 history_query.extend(query_tasks)
                 logger.info(f"{ititle} Query tasks:")
                 logger.info(query_tasks)
+                writer(f"{ititle} Query tasks:")
+                writer(query_tasks)
 
             # 2. Perform Web Search and Auto exec
             # Parallel BU agents
@@ -213,17 +224,24 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
                 agent_prompt_class=CustomAgentMessagePrompt,
                 max_actions_per_step=5,
                 controller=controller,
+                writer=writer,
             ) for task in query_tasks]
+            inter['agents'] = agents
 
             query_result_dir = os.path.join(save_dir, "query_results")
             os.makedirs(query_result_dir, exist_ok=True)
 
             query_results = []
             for i in range(len(agents)):
+                if 'stop' in inter:
+                    raise Exception("Stop Deep Research")
                 title = f"Query:{search_iteration:02d}-{i:03d}"
                 agent = agents[i]
                 logger.info(f"{title} Search...")
+                writer(f"{title} Search...")
                 res = await agent.run(max_steps=kwargs.get("max_steps", 10))
+                if 'stop' in inter:
+                    raise Exception("Stop Deep Research")
                 query_results.append(res)
                 query_result = res.final_result()
                 if not query_result:
@@ -260,19 +278,21 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
             # 3. Summarize Search Result
 
         logger.info("\nFinish Searching, Start Generating Report...")
+        writer("\nFinish Searching, Start Generating Report...")
 
         # 5. Report Generation in Markdown (or JSON if you prefer)
         return await generate_final_report(task, history_infos, save_dir, llm)
 
     except Exception as e:
         logger.error(f"Deep research Error: {e}")
+        writer(f"Deep research Error: {e}")
         return await generate_final_report(task, history_infos, save_dir, llm, str(e))
     finally:
         await safe_close(browser)
         await safe_close(browser_context)
         logger.info("Browser closed.")
 
-async def generate_final_report(task, history_infos, save_dir, llm, error_msg=None):
+async def generate_final_report(task, history_infos, save_dir, llm, error_msg=None) ->tuple[str,str|None]:
     """Generate report from collected information with error handling"""
     try:
         logger.info("\nAttempting to generate final report from collected data...")
@@ -341,32 +361,3 @@ async def generate_final_report(task, history_infos, save_dir, llm, error_msg=No
         logger.error(f"Failed to generate partial report: {report_error}")
         return f"Error generating report: {str(report_error)}", None
 
-async def test_run():
-    from dotenv import load_dotenv
-    load_dotenv('config.env')
-    from buweb.model.model import LLM, create_model
-    tmpdir = os.path.abspath("tmp/deep_research")
-    os.makedirs(tmpdir,exist_ok=True)
-
-    llm_cache_path:str = os.path.join(tmpdir,'langchain_cache.db')
-    llm_cache:BaseCache = SQLiteCache(llm_cache_path)
-
-    task_id = 'testrun' # str(uuid4())
-    work_dir = os.path.join( tmpdir,f"{task_id}")
-    if os.path.exists(work_dir):
-        rmtree(work_dir,ignore_errors=True)
-    os.makedirs(work_dir, exist_ok=True)
-
-    #limitter = CustomRateLimiter( requests_per_minute=10, requests_per_day=1500, record_file_path='tmp/limit.json')
-
-    llm:LLM = LLM.Gemini20Flash
-    op_llm:BaseChatModel = create_model(llm, cache=llm_cache)
-    task = "調査の動作テストをしてください。ブラウザで何かを検索して、動作テスト結果をレポートして。"
-    task = "write a report of browser-use of 'https://github.com/browser-use/browser-use'"
-    task = "今週の天気のニュースをまとめて"
-    report = await deep_research( task, op_llm, save_dir=work_dir, llm_cache=llm_cache)
-    print("------------------------")
-    print(report)
-
-if __name__ == "__main__":
-    asyncio.run(test_run())

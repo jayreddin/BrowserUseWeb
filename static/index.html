@@ -22,6 +22,10 @@
                 <div id="ws-status" class="status-text">WS</div>
                 <div id="chrome-status" class="status-text">Chrome</div>
                 <button id="browser-btn" class="btn">起動</button>
+                <select id="mode-select" class="mode-select">
+                    <option value="0">Operator</option>
+                    <option value="1">Research</option>
+                </select>
                 <button id="execute-task-btn" class="btn" disabled>タスク実行</button>
             </div>
             <textarea id="log-output" rows="10" placeholder="ログ出力" readonly></textarea>
@@ -102,20 +106,20 @@
                 }
                 if( vnc_port>0 || ws_port>0 || br_port>0 ) {
                     isBrowserRunning = 1;
-                    toggleBtn.textContent = '停止';
+                    toggleBtn.textContent = 'Dn';
                 } else {
                     isBrowserRunning = 0;
-                    toggleBtn.textContent = '起動';
+                    toggleBtn.textContent = 'Up';
                 }
                 toggleBtn.disabled = !session_id;
                 if( isTaskRunning != is_task ) {
                     isTaskRunning = is_task;
                     if( is_task ) {
-                        executeTaskBtn.textContent = 'タスクキャンセル';
+                        executeTaskBtn.textContent = 'Cancel';
                         executeTaskBtn.classList.add('cancel');
                         executeTaskBtn.disabled = !session_id;
                     } else {
-                        executeTaskBtn.textContent = 'タスク実行';
+                        executeTaskBtn.textContent = 'Submit';
                         executeTaskBtn.classList.remove('cancel');
                         executeTaskBtn.disabled = taskInput.value.trim() === '';
                     }
@@ -221,6 +225,8 @@
             const task = taskInput.value.trim();
             if (!task) return;
 
+            const mode = parseInt(document.getElementById('mode-select').value);
+
             // Sensitive Dataの収集
             const sensitiveData = {};
             const forms = document.querySelectorAll('.sensitive-data-form');
@@ -242,6 +248,7 @@
                 }, 
                 body: JSON.stringify({ 
                     task: task,
+                    mode: mode,
                     sensitive_data: Object.keys(sensitiveData).length > 0 ? sensitiveData : null
                 }) 
             })

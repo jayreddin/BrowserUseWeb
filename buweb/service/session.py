@@ -13,6 +13,7 @@ from langchain_core.caches import InMemoryCache
 from langchain_community.cache import SQLiteCache
 from buweb.model.model import LLM
 from buweb.task.operator import BwTask
+from buweb.task.research import BwResearchTask
 from logging import Logger,getLogger
 logger:Logger = getLogger(__name__)
 
@@ -123,10 +124,9 @@ class BwSession:
         self._planner_llm:LLM|None = None
         # タスク管理用の属性を追加
         self._task_expand:bool = False
-        self.task_running:bool = False
-        self.task:BwTask|None = None
+        self.task:BwTask|BwResearchTask|None = None
         self.message_queue: Queue = Queue()
-        self.current_task: Future|None = None
+        self.current_future: Future|None = None
 
     def touch(self):
         self.last_access:datetime = datetime.now()
@@ -161,7 +161,7 @@ class BwSession:
         return self.is_vnc_running()>0 and self.is_websockify_running()>0 and self.is_chrome_running()>0
 
     def is_task(self) ->int:
-        if self.task_running:
+        if self.current_future and self.current_future.running():
             return 1
         else:
             return 0
@@ -299,28 +299,36 @@ class BwSession:
             logger.exception(f"[{self.session_id}] {str(ex)}")
         return self.get_status()
 
-    async def start_task(self, task_info: str, llm:LLM, planner_llm:LLM|None, llm_cache:BaseCache|None, sensitive_data:dict[str,str]|None) -> None:
+    async def start_task(self, mode:int, task_info: str, llm:LLM, planner_llm:LLM|None, llm_cache:BaseCache|None, sensitive_data:dict[str,str]|None) -> None:
         """タスクを開始"""
         self.touch()
-        if self.task is not None or self.task_running:
+        if self.task is not None or self.current_future is not None:
             raise RuntimeError("タスクが既に実行中です")
         else:
-            self.task_running = True
-            self.current_task = self.Pool.submit(self._start_task,task_info, llm, planner_llm, llm_cache, sensitive_data )
+            self.current_future = self.Pool.submit(self._start_task, mode, task_info, llm, planner_llm, llm_cache, sensitive_data )
 
-    def _start_task(self, prompt: str, llm:LLM, planner_llm:LLM|None,  llm_cache:BaseCache|None, sensitive_data:dict[str,str]|None ) ->None:
-        asyncio.run(self._run_task(prompt,llm, planner_llm, llm_cache, sensitive_data))
+    def _start_task(self, mode:int, prompt: str, llm:LLM, planner_llm:LLM|None,  llm_cache:BaseCache|None, sensitive_data:dict[str,str]|None ) ->None:
+        #loop = asyncio.get_event_loop()
+        #loop.run_until_complete(self._run_task(mode, prompt, llm, planner_llm, llm_cache, sensitive_data))
+        asyncio.run(self._run_task(mode, prompt, llm, planner_llm, llm_cache, sensitive_data))
 
-    async def _run_task(self, prompt: str, llm:LLM, planner_llm:LLM|None,  llm_cache:BaseCache|None, sensitive_data:dict[str,str]|None) ->None:
+    async def _run_task(self, mode:int, prompt: str, llm:LLM, planner_llm:LLM|None,  llm_cache:BaseCache|None, sensitive_data:dict[str,str]|None) ->None:
         try:
             self.touch()
             await self.setup_vnc_server()
             await self.launch_chrome()
-            self.task = BwTask( dir=self.WorkDir,
-                            llm_cache=llm_cache, llm=llm, plan_llm=planner_llm,
-                            cdp_port=self.cdp_port,
-                            sensitive_data=sensitive_data,
-                            writer=self._write_msg)
+            if mode==1:
+                self.task = BwResearchTask( dir=self.WorkDir,
+                                llm_cache=llm_cache, llm=llm, plan_llm=planner_llm,
+                                cdp_port=self.cdp_port,
+                                sensitive_data=sensitive_data,
+                                writer=self._write_msg)
+            else:
+                self.task = BwTask( dir=self.WorkDir,
+                                llm_cache=llm_cache, llm=llm, plan_llm=planner_llm,
+                                cdp_port=self.cdp_port,
+                                sensitive_data=sensitive_data,
+                                writer=self._write_msg)
             await self.task.start(prompt)
             await self.task.stop()
         except CanNotStartException as ex:
@@ -332,18 +340,23 @@ class BwSession:
             timestamp = datetime.now().strftime("%H:%M:%S")
             self.message_queue.put(f"[{timestamp}] {str(ex)}")
         finally:
-            self.task_running = False
+            self.current_future = None
             self.task = None
             timestamp = datetime.now().strftime("%H:%M:%S")
             self.message_queue.put(f"[{timestamp}] タスクが完了しました")
 
     async def cancel_task(self) -> dict:
         """タスクをキャンセル"""
-        if self.task_running:
-            while self.task_running:
-                if self.task is not None:
-                    await self.task.stop()
-                await asyncio.sleep(0.5)
+        try:
+            future:Future|None = self.current_future
+            if future is not None:
+                while future.running():
+                    if self.task is not None:
+                        await self.task.stop()
+                    await asyncio.sleep(0.5)
+                    future.cancel()
+        except:
+            pass
         return self.get_status()
 
     async def stop_browser(self) ->dict:

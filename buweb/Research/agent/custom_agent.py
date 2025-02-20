@@ -90,6 +90,7 @@ class CustomAgent(Agent):
             page_extraction_llm: Optional[BaseChatModel] = None,
             planner_llm: Optional[BaseChatModel] = None,
             planner_interval: int = 1,  # Run planner every N steps
+            writer:Callable[[str],None]|None=None
     ):
         super().__init__(
             task=task,
@@ -150,6 +151,13 @@ class CustomAgent(Agent):
             message_context=self.message_context,
             sensitive_data=self.sensitive_data
         )
+        self._writer:Callable[[str],None]|None = writer
+
+    def print(self,msg):
+        if self._writer is None:
+            print(msg)
+        else:
+            self._writer(msg)
 
     def _setup_action_models(self) -> None:
         """Setup dynamic action models from controller's registry"""
@@ -177,6 +185,14 @@ class CustomAgent(Agent):
             logger.info(
                 f"🛠️  Action {i + 1}/{len(response.action)}: {action.model_dump_json(exclude_unset=True)}"
             )
+        self.print(f'Eval: {response.current_state.prev_action_evaluation}')
+        self.print(f"New Memory: {response.current_state.important_contents}")
+        self.print(f"Task Progress: \n{response.current_state.task_progress}")
+        self.print(f"Future Plans: \n{response.current_state.future_plans}")
+        self.print(f"Thought: {response.current_state.thought}")
+        self.print(f"Summary: {response.current_state.summary}")
+        for i, action in enumerate(response.action):
+            self.print(f'Action {i + 1}/{len(response.action)}: {action.model_dump_json(exclude_unset=True)}')
 
     def update_step_info(
             self, model_output: CustomAgentOutput, step_info: CustomAgentStepInfo|None = None
@@ -296,6 +312,8 @@ class CustomAgent(Agent):
     @time_execution_async("--step")
     async def step(self, step_info: Optional[CustomAgentStepInfo] = None) -> None:
         """Execute one step of the task"""
+        self.print(f"----------------")
+        self.print(f"STEP-{self.n_steps}")
         logger.info(f"\n📍 Step {self.n_steps}")
         state = None
         model_output = None
