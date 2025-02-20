@@ -160,12 +160,13 @@ async def service_api(api):
 
         elif api=='task_start':
             data = await request.get_json()
+            mode = data.get('mode',0)
             task = data.get('task', '')
             sensitive_data = data.get('sensitive_data', None)
             expand:bool = data.get('expand','') == 'true'
             msg = None
             if task:
-                await ses.start_task(task, session_store._operator_llm, session_store._planner_llm, session_store._llm_cache, sensitive_data)
+                await ses.start_task(mode, task, session_store._operator_llm, session_store._planner_llm, session_store._llm_cache, sensitive_data)
             else:
                 msg = 'タスクが指定されていません'
             res = ses.get_status()
