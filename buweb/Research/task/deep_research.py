@@ -48,6 +48,7 @@ async def deep_research(task:str, llm:BaseChatModel, agent_state=None,
                         **kwargs) ->tuple[str,str|None]:
     task_id = 'testrun' # str(uuid4())
     save_dir = kwargs.get("save_dir", os.path.join(f"./tmp/deep_research/{task_id}"))
+    history_gif:str = os.path.join(save_dir, "agent_history.gif")
     logger.info(f"Save Deep Research at: {save_dir}")
     #if os.path.exists(save_dir):
     #    rmtree(save_dir,ignore_errors=True)
@@ -224,6 +225,7 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
                 agent_prompt_class=CustomAgentMessagePrompt,
                 max_actions_per_step=5,
                 controller=controller,
+                generate_gif=history_gif,
                 writer=writer,
             ) for task in query_tasks]
             inter['agents'] = agents
