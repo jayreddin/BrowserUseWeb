@@ -8,6 +8,7 @@ import asyncio
 from asyncio import Task
 import aiohttp
 import random,string
+from importlib.resources import files
 from langchain_core.caches import BaseCache
 from langchain_core.caches import InMemoryCache
 from langchain_community.cache import SQLiteCache
@@ -113,7 +114,6 @@ class BwSession:
         self.Pool:ThreadPoolExecutor = Pool
         self.geometry = "1024x900"
         self.vnc_proc:subprocess.Popen|None = None
-        self.websockify_proc:subprocess.Popen|None = None
         self.chrome_process:subprocess.Popen|None = None
         self.display_num:int = 0
         self.vnc_port:int = 0
@@ -152,13 +152,13 @@ class BwSession:
         return self.display_num if self.display_num>0 and is_proc(self.vnc_proc) else 0
 
     def is_websockify_running(self) -> int:
-        return self.ws_port if self.ws_port>0 and is_proc(self.websockify_proc) else 0
+        return self.ws_port if self.ws_port>0 and is_proc(self.vnc_proc) else 0
 
     def is_chrome_running(self) -> int:
         return self.cdp_port if self.cdp_port>0 and is_proc(self.chrome_process) else 0
 
     def is_ready(self) -> bool:
-        return self.is_vnc_running()>0 and self.is_websockify_running()>0 and self.is_chrome_running()>0
+        return self.is_vnc_running()>0 and self.is_chrome_running()>0
 
     def is_task(self) ->int:
         if self.current_future and self.current_future.running():
@@ -189,59 +189,49 @@ class BwSession:
 
     async def setup_vnc_server(self) -> None:
         """VNCサーバーをセットアップし、ホスト名とポートを返す"""
-        if is_proc( self.vnc_proc ) and is_proc(self.websockify_proc):
+        if is_proc( self.vnc_proc ):
             return
 
         self.vnc_proc = None
         self.display_num = 0
         self.vnc_port = 0
-        self.websockify_proc = None
         self.ws_port = 0
 
         await stop_proc(self.vnc_proc)
-        await stop_proc(self.websockify_proc)
 
         vnc_proc:subprocess.Popen|None = None
-        ws_proc:subprocess.Popen|None = None
         try:
-            display_num,vnc_port = find_available_display()
             # 新しいVNCサーバーを起動（5900番台のポートを使用）
-            vnc_proc = subprocess.Popen([
-                "Xvnc", f":{display_num}",
-                "-geometry", self.geometry,
-                "-depth", "24",
-                "-SecurityTypes", "None",
-                "-localhost", "-alwaysshared", "-ac", "-quiet",
-                "-rfbport", str(vnc_port)
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            # VNCサーバーの起動を待つ
-            await self.wait_port( vnc_proc, vnc_port, 10.0)
-            if vnc_proc.poll() is not None:
-                raise CanNotStartException("Xvncが起動できませんでした")
-
+            display_num,vnc_port = find_available_display()
             # websockifyを起動（websockifyは5900番台、VNCは6900番台を使用）
             ws_port = find_ws_port()
-            ws_proc = subprocess.Popen([
-                "websockify",
-                "--heartbeat", "30",
-                f"0.0.0.0:{ws_port}",
-                f"localhost:{vnc_port}"
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            # websockifyの起動を待つ
-            await self.wait_port(ws_proc,ws_port,10.0)
-            if ws_proc.poll() is not None:
-                raise CanNotStartException("websockifyが起動できませんでした")
             
-            logger.info(f"[{self.session_id}] Started Xvnc pid:{vnc_proc.pid} :{display_num} port:{vnc_port} WebSock pid:{ws_proc.pid} port:{ws_port}")
+            script_path = str(files('buweb.scripts').joinpath('start_vnc.sh'))
+            if not os.access(script_path, os.X_OK):
+                print(f"Error: {script_path} is not executable.")
+            print(script_path)
+            vnc_proc = subprocess.Popen( [
+                        script_path,
+                        "--display", str(display_num),
+                        "--geometry", str(self.geometry),
+                        "--rfbport", str(vnc_port),
+                        "--wsport", str(ws_port)
+                    ], cwd=self.WorkDir, stderr=subprocess.DEVNULL)
+            # VNCサーバーの起動を待つ
+            await self.wait_port( vnc_proc, vnc_port, 10.0)
+            # websockifyの起動を待つ
+            await self.wait_port(vnc_proc,ws_port,10.0)
+            if vnc_proc.poll() is not None:
+                raise CanNotStartException("Xvncが起動できませんでした")
+            
+            logger.info(f"[{self.session_id}] Started Xvnc pid:{vnc_proc.pid} :{display_num} port:{vnc_port} port:{ws_port}")
             self.vnc_proc = vnc_proc
             self.display_num = display_num
             self.vnc_port = vnc_port
-            self.websockify_proc = ws_proc
             self.ws_port = ws_port
 
         except Exception as ex:
             await stop_proc(vnc_proc)
-            await stop_proc(ws_proc)
             raise ex
 
     async def launch_chrome(self) -> None:
@@ -255,29 +245,17 @@ class BwSession:
             cdp_port = find_cdn_port()
             prof = f"{self.WorkDir}/.config/google-chrome/Default"
             os.makedirs(prof,exist_ok=True)
-            chrome_cmd=["/opt/google/chrome/google-chrome",
-                # "--kiosk",
-                "--no-first-run", "--disable-sync", "--no-default-browser-check","--password-store=basic",
-                "--disable-extensions",
-                "--disable-metrics", "--disable-metrics-reporting", "--disable-crash-reporter", "--disable-logging",
-                "--disable-gpu", "--disable-webgl", "--disable-vulkan", "--disable-accelerated-layers", "--enable-unsafe-swiftshader",
-                "--disable-smooth-scrolling", "--disable-spell-checking", "--disable-remote-fonts", "--disable-dev-shm-usage",
-                f"--remote-debugging-port={cdp_port}"
+            script_path = str(files('buweb.scripts').joinpath('start_browser.sh'))
+            if not os.access(script_path, os.X_OK):
+                print(f"Error: {script_path} is not executable.")
+            bcmd=[ script_path,
+                "--display", str(self.display_num),
+                "--workdir", str(self.WorkDir),
+                "--cdpport", str(cdp_port),
             ]
-            # "--disable-popup-blocking",
-            orig_home = os.environ['HOME']
-            env = os.environ.copy()
-            env["DISPLAY"] = f":{self.display_num}"
-            sw = 1
-            if sw==0:
-                env["HOME"]=self.WorkDir
-                chrome_process = subprocess.Popen( chrome_cmd, cwd=self.WorkDir, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL )
-            else:
-                bcmd = [ "bwrap", "--bind", "/", "/", "--dev", "/dev", "--bind", self.WorkDir, orig_home, "--chdir", orig_home ]
-                if os.path.exists(self.hostsfile):
-                    bcmd.extend( ["--bind",self.hostsfile,"/etc/hosts"])
-                bcmd.extend(chrome_cmd)
-                chrome_process = subprocess.Popen( bcmd, cwd=self.WorkDir, env=env )
+            if os.path.exists(self.hostsfile):
+                bcmd.extend( ["--hosts",self.hostsfile])
+            chrome_process = subprocess.Popen( bcmd, cwd=self.WorkDir, stdout=subprocess.DEVNULL )
             await self.wait_port(chrome_process,cdp_port,30.0)
             if chrome_process.poll() is not None:
                 raise CanNotStartException("google-chromeが起動できませんでした")
@@ -291,7 +269,7 @@ class BwSession:
         try:
             self.touch()
             await self.setup_vnc_server()
-            if is_proc(self.vnc_proc) and is_proc(self.websockify_proc):
+            if is_proc(self.vnc_proc):
                 await self.launch_chrome()
         except CanNotStartException as ex:
             logger.warning(f"[{self.session_id}] {str(ex)}")
@@ -368,9 +346,6 @@ class BwSession:
             await stop_proc( self.chrome_process )
             self.chrome_process = None
             self.cdp_port = 0
-
-            await stop_proc( self.websockify_proc )
-            self.websockify_proc = None
             await stop_proc( self.vnc_proc )
             self.vnc_proc = None
             # 残存プロセスを強制終了
