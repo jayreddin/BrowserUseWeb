@@ -76,18 +76,37 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-CHROME_BIN="/opt/google/chrome/google-chrome"
+CHROME_BIN=""
+PLAYWRIGHT_DIR=~/.cache/ms-playwright
+if [ -d "$PLAYWRIGHT_DIR" ]; then
+  CHROME_BIN=$(find ~/.cache/ms-playwright/chromium* -type f -executable -regex '.*chrome-linux/chrome' 2>/dev/null)
+  if [ ! -x "$CHROME_BIN" ]; then
+    CHROME_BIN=$(find ~/.cache/ms-playwright/chrome* -type f -executable -regex '.*chrome-linux/chrome' 2>/dev/null)
+  fi
+fi
+if [ ! -x "$CHROME_BIN" -a -x "/opt/google/chrome/google-chrome" ]; then
+  CHROME_BIN="/opt/google/chrome/google-chrome"
+fi
+if [ ! -x "$CHROME_BIN" ]; then
+  echo "ERROR: chrome not found" >&2
+  exit 5
+fi
+
 CHROME_OPT=""
-CHROME_OPT="$CHROME_OPT --no-first-run --ozone-platform=x11"
-CHROME_OPT="$CHROME_OPT --disable-sync --no-default-browser-check"
-CHROME_OPT="$CHROME_OPT --password-store=basic"
+CHROME_OPT="$CHROME_OPT --no-first-run --no-default-browser-check --disable-infobars --ozone-platform=x11"
+CHROME_OPT="$CHROME_OPT --disable-sync --password-store=basic"
 CHROME_OPT="$CHROME_OPT --disable-extensions --disable-metrics --disable-metrics-reporting --disable-crash-reporter --disable-logging"
 CHROME_OPT="$CHROME_OPT --disable-smooth-scrolling --disable-spell-checking --disable-remote-fonts --disable-dev-shm-usage"
 CHROME_OPT="$CHROME_OPT --disable-geolocation"
 CHROME_OPT="$CHROME_OPT --disable-gpu --disable-webgl --disable-vulkan --disable-accelerated-layers --enable-unsafe-swiftshader"
+CHROME_OPT="$CHROME_OPT --disable-features=Translate"
+#CHROME_OPT="$CHROME_OPT --enable-strict-powerful-feature-restrictions"
 if [ -n "$cdpport" ]; then
     CHROME_OPT="$CHROME_OPT --remote-debugging-port=${cdpport}"
 fi
+export GOOGLE_API_KEY=no
+export GOOGLE_DEFAULT_CLIENT_ID=no
+export GOOGLE_DEFAULT_CLIENT_SECRET=no
 
 if [ -n "$display_num" ]; then
     export DISPLAY=":${display_num}"
@@ -98,7 +117,10 @@ if [ -n "$workdir" ]; then
     BWRAP_OPT="$BWRAP_OPT --bind $workdir $HOME --chdir $HOME"
 fi
 if [ -n "$hosts" ]; then
-    BWRAP_OPT="$BWRAP_OPT --bind $hosts /etc/hosts"
+    BWRAP_OPT="$BWRAP_OPT --ro-bind $hosts /etc/hosts"
 fi
-
+if [ -d "$PLAYWRIGHT_DIR" ]; then
+    BWRAP_OPT="$BWRAP_OPT --ro-bind $PLAYWRIGHT_DIR $PLAYWRIGHT_DIR"
+fi
+export LANG=C
 bwrap $BWRAP_OPT $CHROME_BIN $CHROME_OPT >/dev/null 2>&1
