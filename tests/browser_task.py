@@ -1,4 +1,5 @@
-import os
+import sys,os
+sys.path.append('.')
 os.environ["ANONYMIZED_TELEMETRY"] = "false"
 import json
 from datetime import datetime
@@ -109,4 +110,4 @@ async def test_js():
         print(f"Done {json_file_path}")
 
 if __name__ == "__main__":
-    asyncio.run(test_hilight())
+    asyncio.run(main())
