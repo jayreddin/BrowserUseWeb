@@ -13,6 +13,7 @@ from langchain_core.caches import BaseCache
 from langchain_core.caches import InMemoryCache
 from langchain_community.cache import SQLiteCache
 from buweb.model.model import LLM
+from buweb.agent.buw_agent import BuwWriter
 from buweb.task.operator import BwTask
 from buweb.task.research import BwResearchTask
 from logging import Logger,getLogger
@@ -295,6 +296,7 @@ class BwSession:
             self.touch()
             await self.setup_vnc_server()
             await self.launch_chrome()
+            buw:BuwWriter = BuwWriter(writer=self._write_msg)
             if mode==1:
                 self.task = BwResearchTask( dir=self.WorkDir,
                                 llm_cache=llm_cache, llm=llm, plan_llm=planner_llm,
@@ -306,7 +308,7 @@ class BwSession:
                                 llm_cache=llm_cache, llm=llm, plan_llm=planner_llm,
                                 cdp_port=self.cdp_port,
                                 sensitive_data=sensitive_data,
-                                writer=self._write_msg)
+                                writer=buw)
             await self.task.start(prompt)
             await self.task.stop()
         except CanNotStartException as ex:

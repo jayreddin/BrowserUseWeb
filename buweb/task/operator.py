@@ -28,10 +28,10 @@ from playwright.async_api import Page
 import asyncio
 from typing import Callable, Optional, Dict,Literal, Type
 from pydantic import BaseModel
-from logging import Logger,getLogger
+from logging import Logger,getLogger, ERROR as LogError
 from dotenv import load_dotenv
 
-from buweb.agent.buw_agent import BuwAgent
+from buweb.agent.buw_agent import BuwWriter, BuwAgent
 from buweb.controller.buw_controller import BwController
 from buweb.model.model import LLM, create_model
 
@@ -45,14 +45,14 @@ class BwTask:
                 llm_cache:BaseCache|None=None, llm:LLM=LLM.Gpt4oMini, plan_llm:LLM|None=None,
                 chrome_instance_path:str|None=None, cdp_port:int|None=None, trace_path:str|None=None,
                 sensitive_data:dict[str,str]|None=None,
-                writer:Callable[[str],None]|None=None):
+                writer:BuwWriter|None=None):
         self._work_dir:str = dir
         if llm_cache is None:
             llm_cache = SQLiteCache( os.path.join(dir,'langchain_cache.db') )
         self._operator_llm:LLM = llm
         self._plan_llm:LLM|None = plan_llm
         self._llm_cache:BaseCache = llm_cache
-        self._writer:Callable[[str],None]|None = writer
+        self._writer:BuwWriter = writer if writer is not None else BuwWriter()
         self.cdp_port:int|None = cdp_port
         bw_context_config:BrowserContextConfig = BrowserContextConfig(
             maximum_wait_page_load_time=1.2,
@@ -83,12 +83,14 @@ class BwTask:
 
     def logPrint(self,msg):
         if self._writer is not None:
-            self._writer(msg)
+            self._writer.print(msg)
         else:
-            logger.info(msg)
+            logger.info( f"##logPrint {msg}")
 
     async def start(self,task:str):
 
+        alog=getLogger("browser_use")
+        alog.setLevel(LogError)
         now = datetime.now()
         now_datetime = now.strftime("%A, %Y-%m-%d %H:%M")
 
@@ -120,7 +122,7 @@ class BwTask:
             pre_result:BaseMessage = await planner_llm.ainvoke( "\n".join(pre_prompt))
             if isinstance(pre_result.content,str):
                 plan_text = pre_result.content
-                self.logPrint(plan_text)
+                #self.logPrint(plan_text)
 
         web_task = f"# 現在時刻: {now_datetime}\n\n# 与えられたタスク:\n{task}"
         if plan_text is not None:
@@ -141,9 +143,8 @@ class BwTask:
                 browser=self._browser,
                 browser_context=self._browser_context,
                 sensitive_data=self._sensitive_data,
-                writer=self._writer
             )
-            result: AgentHistoryList = await self._agent.run()
+            result: AgentHistoryList = await self._agent.run(wr=self._writer)
             if result.is_done():
                 final_str = result.final_result()
         except Exception as ex:

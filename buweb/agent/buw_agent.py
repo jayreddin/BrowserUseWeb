@@ -27,62 +27,89 @@ from playwright.async_api import Page
 import asyncio
 from typing import Callable, Optional, Dict,Literal, Type
 from pydantic import BaseModel
-from logging import Logger,getLogger
+from logging import Logger,getLogger,ERROR as LvError
 from dotenv import load_dotenv
 
 logger:Logger = getLogger(__name__)
 
-class BuwAgent(Agent):
-
-    def __init__(self, *, task,
-                 llm:BaseChatModel,page_extraction_llm:BaseChatModel|None=None,planner_llm:BaseChatModel|None=None,planner_interval:int=1,
-                 browser,browser_context=None,
-                 controller,
-                 use_vision:bool=False,
-                 max_failures: int = 3,
-		         retry_delay: int = 10,
-                 system_prompt_class: Type[SystemPrompt] = SystemPrompt,
-                 max_input_tokens: int = 128000,
-		         validate_output: bool = False,
-		         message_context: Optional[str] = None,
-                 writer:Callable[[str],None]|None=None,generate_gif:bool|str=False, save_conversation_path:str|None=None,
-                 sensitive_data: dict[str,str]|None = None,
-                 available_file_paths: Optional[list[str]] = None,
-                 max_actions_per_step:int=10,
-                 ):
-        super().__init__(
-            task=task,llm=llm,
-            browser=browser,browser_context=browser_context, controller=controller,
-            use_vision=use_vision, use_vision_for_planner=use_vision,
-            save_conversation_path=save_conversation_path,
-            max_failures=max_failures, retry_delay=retry_delay,
-            system_prompt_class=system_prompt_class,
-            max_input_tokens=max_input_tokens,
-            validate_output=validate_output,
-            message_context=message_context,
-            generate_gif=generate_gif,
-            sensitive_data=sensitive_data,
-            available_file_paths=available_file_paths,
-            max_actions_per_step=max_actions_per_step,
-            page_extraction_llm=page_extraction_llm, planner_llm=planner_llm, planner_interval=planner_interval,
-        )
+class BuwWriter:
+    def __init__(self,writer:Callable[[str],None]|None=None):
         self._writer:Callable[[str],None]|None = writer
+        self._n_steps:int=0
 
     def print(self,msg):
         if self._writer is None:
-            print(msg)
+            print(f"##AgemtPrint {msg}")
         else:
             self._writer(msg)
 
-    async def step(self, step_info: AgentStepInfo|None = None) -> None:
+    async def start_agent(self,n_steps:int):
+        self._n_steps = n_steps
         self.print(f"----------------")
-        self.print(f"STEP-{self.n_steps}")
-        await super().step(step_info)
+        self.print(f"STEP-{n_steps}")
 
-    def _log_response(self, response: AgentOutput) -> None:
-        super()._log_response(response)
-        self.print(f'Eval: {response.current_state.evaluation_previous_goal}')
-        self.print(f'Memory: {response.current_state.memory}')
-        self.print(f'Next goal: {response.current_state.next_goal}')
-        for i, action in enumerate(response.action):
-            self.print(f'Action {i + 1}/{len(response.action)}: {action.model_dump_json(exclude_unset=True)}')
+    async def start_plannner(self,n_steps:int):
+        self.print(f"Planner: {self._n_steps}")
+
+    async def done_plannner(self,plan:str|None):
+        self.print(f"Planner: {plan}")
+
+    async def get_next_action(self):
+        self.print(f"Action: {self._n_steps}")
+
+    async def new_step_callback(self, state: BrowserState, output: AgentOutput, step: int):
+        self.print(f'Eval: {output.current_state.evaluation_previous_goal}')
+        self.print(f'Memory: {output.current_state.memory}')
+        self.print(f'Next goal: {output.current_state.next_goal}')
+        # for i, action in enumerate(output.action):
+        #     self.print(f'Action {i + 1}/{len(output.action)}: {action.model_dump_json(exclude_unset=True)}')
+
+    async def action(self,action:AgentOutput):
+        self.print(f"Action:{action}")
+
+    async def done_callback(self, history: AgentHistoryList):
+        self.print(f"Done:")
+        pass
+
+    async def external_agent_status_raise_error_callback(self) ->bool:
+        return False
+
+class BuwAgent(Agent):
+
+    def print(self,msg):
+        if self._writer is None:
+            print(f"##AgemtPrint {msg}")
+        else:
+            self._writer.print(msg)
+
+    async def run(self, max_steps: int = 100, wr:BuwWriter|None=None) -> AgentHistoryList:
+        logger.setLevel(LvError)
+        self._writer:BuwWriter|None = wr
+        if self._writer is not None:
+            self.register_new_step_callback = self._writer.new_step_callback
+            self.register_done_callback = self._writer.done_callback
+            #self.register_external_agent_status_raise_error_callback = self.external_agent_status_raise_error_callback
+        if self._writer:
+            await self._writer.start_agent(self.state.n_steps)
+        ret = await super().run(max_steps)
+        return ret
+
+    def _log_agent_run(self) -> None:
+        super()._log_agent_run()
+
+    async def _run_planner(self) ->str|None:
+        if self._writer:
+            await self._writer.start_plannner(self.state.n_steps)
+        plan = await super()._run_planner()
+        if self._writer:
+            await self._writer.done_plannner(plan)
+        return plan
+
+    async def get_next_action(self, input_messages: list[BaseMessage]) -> AgentOutput:
+        if self._writer:
+            await self._writer.get_next_action()
+        response = await super().get_next_action(input_messages)
+        return response
+
+    async def log_completion(self) -> None:
+        await super().log_completion()

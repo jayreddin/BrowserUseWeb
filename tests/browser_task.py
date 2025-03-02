@@ -24,7 +24,6 @@ async def main():
     if os.path.exists('config.env'):
         load_dotenv('config.env')
     task="キャトルアイサイエンス株式会社の会社概要をしらべて"
-    #task="192.168.1.200にmaeda/maeda0501でログインして、通常モードに切り替えて、会議室予約に、「1/30 テストですよ 参加者前田」を追加する。"
     #task="Amazonで、格安の2.5inch HDDを探して製品URLをリストアップしてください。"
     workdir = os.path.abspath("tmp/testrun")
     os.makedirs(workdir,exist_ok=True)

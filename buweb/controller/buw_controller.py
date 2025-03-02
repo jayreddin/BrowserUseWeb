@@ -26,11 +26,13 @@ from browser_use.dom.service import DomService
 from browser_use.dom.views import DOMElementNode, SelectorMap
 from playwright.async_api import Page
 import asyncio
-from typing import Callable, Optional, Dict,Literal, Type
+from typing import Awaitable, Callable, Optional, Dict,Literal, Type
 from pydantic import BaseModel
 import pyperclip
 from logging import Logger,getLogger
 from dotenv import load_dotenv
+
+from buweb.agent.buw_agent import BuwWriter
 
 logger:Logger = getLogger(__name__)
 
@@ -48,8 +50,9 @@ class UserInputResult(BaseModel):
     anser: str
 
 class BwController(Controller):
-    def __init__(self,exclude_actions: list[str] = [],output_model: Optional[Type[BaseModel]] = None):
+    def __init__(self,exclude_actions: list[str] = [],output_model: Optional[Type[BaseModel]] = None, callback: Callable[[ActionModel], Awaitable[None]] | None = None):
         super().__init__(exclude_actions=exclude_actions,output_model=output_model)
+        self.act_callback: Callable[[ActionModel], Awaitable[None]] | None = None
         self._register_custom_actions()
 
     def _register_custom_actions(self):
@@ -166,3 +169,19 @@ class BwController(Controller):
 	# 	available_file_paths: Optional[list[str]] = None,
 	# ) -> ActionResult:
     #         return await super().act(action,browser_context,page_extraction_llm,sensitive_data,available_file_paths)
+    async def act(
+        self,
+        action: ActionModel,
+        browser_context: BrowserContext,
+        #
+        page_extraction_llm: Optional[BaseChatModel] = None,
+        sensitive_data: Optional[Dict[str, str]] = None,
+        available_file_paths: Optional[list[str]] = None,
+        #
+        context= None,
+        ) -> ActionResult:
+
+        if self.act_callback is not None:
+            await self.act_callback(action)
+        ret = await super().act(action,browser_context,page_extraction_llm,sensitive_data,available_file_paths,context)
+        return ret
