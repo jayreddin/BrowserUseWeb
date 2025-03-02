@@ -131,7 +131,10 @@ class BwTask:
 
         #---------------------------------
         #br_context = await self.get_browser_context()
-        wcnt = BwController()
+        cb = None
+        if self._writer is not None:
+            cb = self._writer.action
+        wcnt = BwController( callback=cb)
 
         final_str:str|None = None
         try:

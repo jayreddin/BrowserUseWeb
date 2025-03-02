@@ -1,6 +1,7 @@
 import sys, os, shutil, subprocess, traceback, tempfile
 from datetime import datetime, timedelta
 import time
+import json
 from queue import Queue, Empty
 from threading import Lock
 from concurrent.futures import ThreadPoolExecutor, Future
@@ -134,7 +135,11 @@ class BwSession:
 
     def _write_msg(self,msg):
         self.touch()
-        self.message_queue.put(msg)
+        if isinstance(msg,dict|list):
+            msgstr = json.dumps(msg,ensure_ascii=False)
+        else:
+            msgstr = str(msg)
+        self.message_queue.put(msgstr)
 
     async def get_msg(self,*,timeout:float=1.0):
         break_time = time.time() + max(0, timeout)

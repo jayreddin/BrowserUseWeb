@@ -50,9 +50,9 @@ class UserInputResult(BaseModel):
     anser: str
 
 class BwController(Controller):
-    def __init__(self,exclude_actions: list[str] = [],output_model: Optional[Type[BaseModel]] = None, callback: Callable[[ActionModel], Awaitable[None]] | None = None):
+    def __init__(self,exclude_actions: list[str] = [],output_model: Optional[Type[BaseModel]] = None, callback: Callable[[ActionModel|ActionResult], Awaitable[None]] | None = None):
         super().__init__(exclude_actions=exclude_actions,output_model=output_model)
-        self.act_callback: Callable[[ActionModel], Awaitable[None]] | None = None
+        self.act_callback: Callable[[ActionModel|ActionResult], Awaitable[None]] | None = callback
         self._register_custom_actions()
 
     def _register_custom_actions(self):
@@ -184,4 +184,6 @@ class BwController(Controller):
         if self.act_callback is not None:
             await self.act_callback(action)
         ret = await super().act(action,browser_context,page_extraction_llm,sensitive_data,available_file_paths,context)
+        if self.act_callback is not None:
+            await self.act_callback(ret)
         return ret

@@ -23,7 +23,7 @@ async def main():
     # from session import SessionStore, BwSession
     if os.path.exists('config.env'):
         load_dotenv('config.env')
-    task="キャトルアイサイエンス株式会社の会社概要をしらべて"
+    task="阿部寛のホームページの日本IT業界における存在価値を概要を調査してください。"
     #task="Amazonで、格安の2.5inch HDDを探して製品URLをリストアップしてください。"
     workdir = os.path.abspath("tmp/testrun")
     os.makedirs(workdir,exist_ok=True)
