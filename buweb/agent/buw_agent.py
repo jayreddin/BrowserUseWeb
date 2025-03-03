@@ -61,6 +61,7 @@ class BuwWriter:
 
     async def start_agent(self,n_steps:int):
         """agentがrun開始したときに呼ばれる"""
+        self._n_agents += 1
         self._n_steps = 0
         self._n_actions = 0
         self.print(f"----------------")
@@ -116,8 +117,13 @@ class BuwWriter:
                 content = content[:40]+" ....... " + content[-40:]
             self.print( f"extracted_content:{content}" )
 
-    async def done_callback(self, history: AgentHistoryList):
+    async def done_agent(self, history: AgentHistoryList):
         self.print(f"Done:")
+
+    async def all_done_agent(self):
+        self._n_steps = 0
+        self._n_actions = 0
+        self._n_agents = 0
 
     async def external_agent_status_raise_error_callback(self) ->bool:
         return False
@@ -135,7 +141,7 @@ class BuwAgent(Agent):
         self._writer:BuwWriter|None = wr
         if self._writer is not None:
             self.register_new_step_callback = self._writer.new_step_callback
-            self.register_done_callback = self._writer.done_callback
+            self.register_done_callback = self._writer.done_agent
             #self.register_external_agent_status_raise_error_callback = self.external_agent_status_raise_error_callback
         if self._writer:
             await self._writer.start_agent(self.state.n_steps)

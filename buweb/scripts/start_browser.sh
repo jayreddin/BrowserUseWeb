@@ -14,7 +14,7 @@ pid_vnc=""
 pid_ws=""
 
 function fn_cleanup(){
-  echo "cleanup" >&2
+  echo "cleanup browser" >&2
   set +u +e
   if [ -n "$pid_ws" ]; then
     echo "cleanup kill ws $pid_ws" >&2
@@ -79,9 +79,9 @@ done
 CHROME_BIN=""
 PLAYWRIGHT_DIR=~/.cache/ms-playwright
 if [ -d "$PLAYWRIGHT_DIR" ]; then
-  CHROME_BIN=$(find ~/.cache/ms-playwright/chromium* -type f -executable -regex '.*chrome-linux/chrome' 2>/dev/null)
+  CHROME_BIN=$(find $PLAYWRIGHT_DIR -type f -executable -regex '.*chromium.*/chrome-linux/chrome' 2>/dev/null | sort -V | tail -1)
   if [ ! -x "$CHROME_BIN" ]; then
-    CHROME_BIN=$(find ~/.cache/ms-playwright/chrome* -type f -executable -regex '.*chrome-linux/chrome' 2>/dev/null)
+    CHROME_BIN=$(find $PLAYWRIGHT_DIR -type f -executable -regex '.*chrome.*/chrome-linux/chrome' 2>/dev/null | sort -V | tail -1)
   fi
 fi
 if [ ! -x "$CHROME_BIN" -a -x "/opt/google/chrome/google-chrome" ]; then

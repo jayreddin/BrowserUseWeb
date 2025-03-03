@@ -125,6 +125,7 @@ class BwSession:
         self._operator_llm:LLM = LLM.Gemini20Flash
         self._planner_llm:LLM|None = None
         # タスク管理用の属性を追加
+        self._n_tasks:int = 0
         self._task_expand:bool = False
         self.task:BwTask|BwResearchTask|None = None
         self.message_queue: Queue = Queue()
@@ -134,14 +135,17 @@ class BwSession:
         self.last_access:datetime = datetime.now()
 
     def _write_msg(self,msg):
+        self._write_msg4( self._n_tasks,0,0,0,msg)
+
+    def _write_msg4(self,n_task:int,n_agent:int,n_step:int,n_act:int,msg):
         self.touch()
         if isinstance(msg,dict|list):
             msgstr = json.dumps(msg,ensure_ascii=False)
         else:
             msgstr = str(msg)
-        self.message_queue.put(msgstr)
+        self.message_queue.put( (n_task,n_agent,n_step,n_act,msgstr) )
 
-    async def get_msg(self,*,timeout:float=1.0):
+    async def get_msg(self,*,timeout:float=1.0) ->tuple[int,int,int,int,str|None]:
         break_time = time.time() + max(0, timeout)
         while True:
             try:
@@ -152,7 +156,7 @@ class BwSession:
                 if now<break_time:
                     await asyncio.sleep(0.2)
                     continue
-                return None
+                return (0,0,0,0,None)
 
     def is_vnc_running(self) -> int:
         return self.display_num if self.display_num>0 and is_proc(self.vnc_proc) else 0
@@ -297,11 +301,12 @@ class BwSession:
         asyncio.run(self._run_task(mode, prompt, llm, planner_llm, llm_cache, sensitive_data))
 
     async def _run_task(self, mode:int, prompt: str, llm:LLM, planner_llm:LLM|None,  llm_cache:BaseCache|None, sensitive_data:dict[str,str]|None) ->None:
+        self._n_tasks+=1
+        buw:BuwWriter = BuwWriter( n_task=self._n_tasks, writer=self._write_msg4)
         try:
             self.touch()
             await self.setup_vnc_server()
             await self.launch_chrome()
-            buw:BuwWriter = BuwWriter(writer=self._write_msg)
             if mode==1:
                 self.task = BwResearchTask( dir=self.WorkDir,
                                 llm_cache=llm_cache, llm=llm, plan_llm=planner_llm,
@@ -319,16 +324,16 @@ class BwSession:
         except CanNotStartException as ex:
             logger.warning(f"[{self.session_id}] {str(ex)}")
             timestamp = datetime.now().strftime("%H:%M:%S")
-            self.message_queue.put(f"[{timestamp}] {str(ex)}")
+            buw.print(f"[{timestamp}] {str(ex)}")
         except Exception as ex:
             logger.exception(f"[{self.session_id}] {str(ex)}")
             timestamp = datetime.now().strftime("%H:%M:%S")
-            self.message_queue.put(f"[{timestamp}] {str(ex)}")
+            buw.print("[{timestamp}] {str(ex)}")
         finally:
             self.current_future = None
             self.task = None
             timestamp = datetime.now().strftime("%H:%M:%S")
-            self.message_queue.put(f"[{timestamp}] タスクが完了しました")
+            buw.print(f"[{timestamp}] タスクが完了しました")
 
     async def cancel_task(self) -> dict:
         """タスクをキャンセル"""

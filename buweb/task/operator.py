@@ -155,14 +155,14 @@ class BwTask:
             self.logPrint(f"停止しました {str(ex)}")
         finally:
             self._agent = None
-
+            await self._writer.all_done_agent()
         #---------------------------------
         if final_str:
             post_llm = create_model(LLM.Gemini20Flash) # ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
             report_task = f"# 現在時刻: {now_datetime}\n\n# 与えられたタスク:\n{task}"
             if plan_text is not None:
                 report_task += f"\n\n# 実行プラン:\n{plan_text}"
-            report_task += f"\n\n# 実行結果\n{final_str}\n\n# 上記の結果を日本語でレポートしてください。"
+            report_task += f"\n\n# 実行結果\n{final_str}\n\n# 実行結果の内容を日本語でレポートしてください。"
             post_result:BaseMessage = await post_llm.ainvoke( report_task )
             if isinstance(post_result.content,str):
                 report = post_result.content

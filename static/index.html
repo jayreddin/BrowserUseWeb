@@ -52,8 +52,12 @@
         executeTaskBtn.disabled = true;
         toggleBtn.disabled = true;
 
-        function logPrint(msg) {
-            logOutput.value += msg + '\n';
+        function logPrint(task,agent,step,act,msg) {
+            if( msg ) {
+                logOutput.value += '#'+task+'-'+agent+'-'+step+'-'+act+' '+msg + '\n';
+            } else {
+                logOutput.value += '\n';
+            }
             logOutput.scrollTop = logOutput.scrollHeight;
         }
 
@@ -125,7 +129,11 @@
                     }
                 }
                 if( data.msg ) {
-                    logPrint(data.msg)
+                    const n_task = data.task || 0;
+                    const n_agent = data.agent || 0;
+                    const n_step = data.step || 0;
+                    const n_act = data.act || 0;
+                    logPrint( n_task, n_agent, n_step, n_act, data.msg)
                 }
             } catch(ex) {
 
@@ -156,6 +164,7 @@
 
         function startVNC(host, port) {
             stopVNC();
+            console.log('startVNC',host,port)
             const url = window.location.origin + '/novnc/vnc_lite.html?host=' + encodeURIComponent(host) + '&port=' + port + '&autoconnect=true&scale=true';
             vncContainer.innerHTML = `<iframe id="vnc-frame" src="${url}" style="width:100%;height:100%;border:none;"></iframe>`;
         }
