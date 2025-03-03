@@ -113,13 +113,21 @@ async def session_stream(server_addr,client_addr):
         before_time = 0.0
         while ses is not None:
             try:
-                msg = await ses.get_msg(timeout=1)
+                n_task,n_agent,n_step,n_act,msg = await ses.get_msg(timeout=1)
                 res = ses.get_status()
                 now = time.time()
                 if msg is None:
                     if (now-before_time)<10 and compare_dicts(before_res, res):
                         continue
                 else:
+                    if n_task>0:
+                        res['task'] = n_task
+                    if n_agent>0:
+                        res['agent'] = n_agent
+                    if n_step>0:
+                        res['step'] = n_step
+                    if n_act>0:
+                        res['act'] = n_act
                     res['msg'] = msg
                 yield f"data: {json.dumps(res, ensure_ascii=False)}\n\n"
                 before_res = res
