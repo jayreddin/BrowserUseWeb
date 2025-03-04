@@ -19,13 +19,14 @@ body {
     width: 400px;
     min-width: 300px;
     resize: horizontal;
-    overflow: auto;
+    overflow: hidden;
     background-color: #ffffff;
     padding: 10px;
     box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
     display: flex;
     flex-direction: column;
     gap: 2px;
+    height: 96%;
 }
 
 .button-panel {
@@ -136,10 +137,134 @@ body {
 }
 
 #log-output {
-    flex-grow: 1;
+    flex: 1 1 0;
+    min-height: 0;
     font-size: 12px;
     background-color: #f8f9fa;
-    height: 0; /* Allows flexbox to control height */
+    overflow-y: auto;
+    padding: 5px;
+    line-height: 1.4;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+}
+
+/* ログエントリのスタイル */
+#log-output > div {
+    margin-bottom: 4px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* ログ出力コンテナの共通スタイル */
+.logoutput-container {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 3px 0;
+}
+
+/* ログ出力ヘッダーの共通スタイル */
+.logoutput-container-header {
+    background-color: #eee;
+    cursor: pointer;
+    font-weight: bold;
+    position: relative;
+    padding-left: 5px;
+}
+
+/* ログ出力ヘッダーの開閉インジケーター */
+.logoutput-container-header::after {
+    content: "▼";
+    position: absolute;
+    right: 8px;
+    transition: transform 0.3s;
+}
+
+/* 折りたたまれた状態のインジケーター */
+.logoutput-container.collapsed .logoutput-container-header::after {
+    transform: rotate(-90deg);
+}
+
+/* ログ出力内容の共通スタイル */
+.logoutput-container-content {
+    overflow-y: auto;
+    transition: max-height 0.3s ease-out;
+    padding-left: 5px;
+    padding-right: 2px;
+}
+
+/* 折りたたまれた状態のコンテンツ */
+.logoutput-container.collapsed .logoutput-container-content {
+    max-height: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+/* タスクコンテナの個別スタイル */
+.task-container {
+    margin-bottom: 8px;
+}
+
+.task-container .logoutput-container-header {
+
+}
+
+.task-container .logoutput-container-content {
+}
+
+/* エージェントコンテナの個別スタイル */
+.agent-container {
+
+}
+
+.agent-container .logoutput-container-header {
+
+}
+
+.agent-container .logoutput-container-content {
+
+}
+
+/* ステップコンテナの個別スタイル */
+.step-container {
+}
+
+.step-container .logoutput-container-header {
+
+}
+
+.step-container .logoutput-container-content {
+}
+
+/* アクションコンテナの個別スタイル */
+.action-container {
+
+}
+
+.action-container .logoutput-container-header {
+
+}
+
+.action-container .logoutput-container-content {
+}
+
+/* スクロールバーのカスタマイズ */
+#log-output::-webkit-scrollbar {
+    width: 8px;
+}
+
+#log-output::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+#log-output::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+}
+
+#log-output::-webkit-scrollbar-thumb:hover {
+    background: #666;
 }
 
 /* Mode Select */

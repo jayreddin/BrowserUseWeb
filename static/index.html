@@ -28,7 +28,7 @@
                 </select>
                 <button id="execute-task-btn" class="btn" disabled>タスク実行</button>
             </div>
-            <textarea id="log-output" rows="10" placeholder="ログ出力" readonly></textarea>
+            <div id="log-output"></div>
         </div>
         <div class="vnc-viewer">
             <div id="vnc-container"></div>
@@ -52,12 +52,77 @@
         executeTaskBtn.disabled = true;
         toggleBtn.disabled = true;
 
-        function logPrint(task,agent,step,act,msg) {
-            if( msg ) {
-                logOutput.value += '#'+task+'-'+agent+'-'+step+'-'+act+' '+msg + '\n';
+        // 開閉可能なコンテナを作成する共通関数
+        function createCollapsibleContainer(id, className, no) {
+            // コンテナ全体を包むdiv
+            const container = document.createElement("div");
+            container.id = id;
+            container.className = `${className}-container logoutput-container`; // 共通クラスを追加
+            
+            // ヘッダー（クリック可能）
+            const header = document.createElement("div");
+            header.className = "logoutput-container-header"; // 共通クラスを使用
+            header.textContent = `${className} #${no}`;
+            header.addEventListener("click", function() {
+                this.parentElement.classList.toggle("collapsed");
+            });
+            
+            // 内容を格納するdiv
+            const content = document.createElement("div");
+            content.className = "logoutput-container-content"; // 共通クラスを使用
+            
+            // 構造を組み立て
+            container.appendChild(header);
+            container.appendChild(content);
+            
+            return {
+                container: container,
+                content: content
+            };
+        }
+        function ensureContainer(parent, className, no) {
+            const parentId = parent.parentElement?.id;
+            const Id = parentId ? parentId + '-' + className + '-' + no : className + '-' + no;
+
+            // 既存のコンテナを探す
+            let actDiv = document.getElementById(Id);
+            let actContent;
+            // コンテナが存在しない場合は新規作成
+            if (!actDiv) {
+                const actContainer = createCollapsibleContainer(Id, className, no);
+                actDiv = actContainer.container;
+                actContent = actContainer.content;
+                parent.appendChild(actDiv);
             } else {
-                logOutput.value += '\n';
+                actContent = actDiv.querySelector(".logoutput-container-content"); // 共通クラスを使用
             }
+            return actContent;
+        }
+
+        function logPrint(task, agent, step, act, msg) {
+            let parentContent = logOutput;
+            if (task > 0) {
+                // タスクIDを生成
+                parentContent = ensureContainer(parentContent, 'task', task);
+                if (agent > 0) {
+                    // エージェントIDを生成
+                    parentContent = ensureContainer(parentContent, 'agent', agent);                        
+                    if (step > 0) {
+                        // ステップIDを生成
+                        parentContent = ensureContainer(parentContent, 'step', step);                        
+                        if (act > 0) {
+                            // アクションIDを生成
+                            parentContent = ensureContainer(parentContent, 'action', act);
+                        }
+                    }
+                }
+            }
+            // メッセージを追加
+            const newline = document.createElement("div");
+            newline.textContent = msg;
+            parentContent.appendChild(newline);
+            
+            // スクロールを最下部に
             logOutput.scrollTop = logOutput.scrollHeight;
         }
 
