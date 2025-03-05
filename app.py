@@ -177,7 +177,10 @@ async def service_api(api):
             expand:bool = data.get('expand','') == 'true'
             msg = None
             if task:
-                await ses.start_task(mode, task, session_store._operator_llm, session_store._planner_llm, session_store._llm_cache, sensitive_data)
+                await ses.start_task(mode, task,
+                                    session_store._operator_llm, session_store._planner_llm,
+                                    session_store._llm_cache, session_store._trans,
+                                    sensitive_data)
             else:
                 msg = 'タスクが指定されていません'
             res = ses.get_status()

@@ -30,18 +30,25 @@ from typing import Callable, Optional, Dict,Literal, Type
 from pydantic import BaseModel
 from logging import Logger,getLogger,ERROR as LvError
 from dotenv import load_dotenv
+from buweb.model.translate import Translate
 
 logger:Logger = getLogger(__name__)
 
 class BuwWriter:
-    def __init__(self,n_task:int=0,writer:Callable[[int,int,int,int,str,str|dict,str|None],None]|None=None):
+    def __init__(self,n_task:int=0,writer:Callable[[int,int,int,int,str,str|dict,str|None],None]|None=None,trans:Translate|None=None):
         self._writer:Callable[[int,int,int,int,str,str|dict,str|None],None]|None = writer
+        self._trans:Translate|None = trans
         self._global_task:str = ""
         self._n_task:int = n_task
         self._agent_task:str = ""
         self._n_agents:int=0
         self._n_steps:int=0
         self._n_actions:int=0
+
+    async def trans(self, text:str|None) ->str|None:
+        if text and self._trans:
+            return await self._trans.translate(text)
+        return text
 
     def print(self, *, header:str="", msg:str|dict="", progress:str|None=None):
         """
@@ -89,6 +96,7 @@ class BuwWriter:
         self.print(progress=f"planning...")
 
     async def done_plannner(self,plan:str|None):
+        plan = await self.trans(plan)
         self.print( msg=f"Plan: {plan}",progress="")
 
     async def start_get_next_action(self, n_steps:int):
@@ -101,9 +109,11 @@ class BuwWriter:
         self._n_actions = 0
         if self._n_steps>1:
             self._n_steps -= 1
-            self.print( msg=f'{output.current_state.evaluation_previous_goal}',progress="")
+            prev = await self.trans(output.current_state.evaluation_previous_goal)
+            self.print( msg=f'{prev}',progress="")
             self._n_steps += 1
-        self.print( header=f'{output.current_state.next_goal}',progress="")
+        next = await self.trans(output.current_state.next_goal)
+        self.print( header=f'{next}',progress="")
         for i, action in enumerate(output.action):
             self._n_actions = i + 1
             headers=[]

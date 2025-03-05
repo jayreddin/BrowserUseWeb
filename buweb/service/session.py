@@ -14,6 +14,7 @@ from langchain_core.caches import BaseCache
 from langchain_core.caches import InMemoryCache
 from langchain_community.cache import SQLiteCache
 from buweb.model.model import LLM
+from buweb.model.translate import Translate
 from buweb.agent.buw_agent import BuwWriter
 from buweb.task.operator import BwTask
 from buweb.task.research import BwResearchTask
@@ -287,22 +288,22 @@ class BwSession:
             logger.exception(f"[{self.session_id}] {str(ex)}")
         return self.get_status()
 
-    async def start_task(self, mode:int, task_info: str, llm:LLM, planner_llm:LLM|None, llm_cache:BaseCache|None, sensitive_data:dict[str,str]|None) -> None:
+    async def start_task(self, mode:int, task_info: str, llm:LLM, planner_llm:LLM|None, llm_cache:BaseCache|None, trans:Translate, sensitive_data:dict[str,str]|None) -> None:
         """タスクを開始"""
         self.touch()
         if self.task is not None or self.current_future is not None:
             raise RuntimeError("タスクが既に実行中です")
         else:
-            self.current_future = self.Pool.submit(self._start_task, mode, task_info, llm, planner_llm, llm_cache, sensitive_data )
+            self.current_future = self.Pool.submit(self._start_task, mode, task_info, llm, planner_llm, llm_cache, trans, sensitive_data )
 
-    def _start_task(self, mode:int, prompt: str, llm:LLM, planner_llm:LLM|None,  llm_cache:BaseCache|None, sensitive_data:dict[str,str]|None ) ->None:
+    def _start_task(self, mode:int, prompt: str, llm:LLM, planner_llm:LLM|None,  llm_cache:BaseCache|None, trans:Translate, sensitive_data:dict[str,str]|None ) ->None:
         #loop = asyncio.get_event_loop()
         #loop.run_until_complete(self._run_task(mode, prompt, llm, planner_llm, llm_cache, sensitive_data))
-        asyncio.run(self._run_task(mode, prompt, llm, planner_llm, llm_cache, sensitive_data))
+        asyncio.run(self._run_task(mode, prompt, llm, planner_llm, llm_cache, trans, sensitive_data))
 
-    async def _run_task(self, mode:int, prompt: str, llm:LLM, planner_llm:LLM|None,  llm_cache:BaseCache|None, sensitive_data:dict[str,str]|None) ->None:
+    async def _run_task(self, mode:int, prompt: str, llm:LLM, planner_llm:LLM|None,  llm_cache:BaseCache|None, trans:Translate, sensitive_data:dict[str,str]|None) ->None:
         self._n_tasks+=1
-        buw:BuwWriter = BuwWriter( n_task=self._n_tasks, writer=self._write_msg4)
+        buw:BuwWriter = BuwWriter( n_task=self._n_tasks, writer=self._write_msg4, trans=trans )
         try:
             self.touch()
             await buw.start_global_task(prompt)
@@ -406,6 +407,7 @@ class SessionStore:
         self._sweeper_task:Task|None = None
         self._llm_cache_path:str = os.path.join(self.SessionsDir,'langchain_cache.db')
         self._llm_cache:BaseCache = SQLiteCache(self._llm_cache_path)
+        self._trans:Translate = Translate('ja', os.path.join(self.SessionsDir,'translate_cache.json'))
         # 設定
         self._operator_llm:LLM = LLM.Gemini20Flash
         self._planner_llm:LLM|None = None
