@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os,sys,shutil
+from typing import AsyncIterable
 os.environ["ANONYMIZED_TELEMETRY"] = "false"
 import asyncio
 from quart import Quart, request, jsonify, send_from_directory, Response
@@ -93,7 +94,7 @@ def compare_dicts(d1, d2):
                 return False
     return True
 
-async def session_stream(server_addr,client_addr):
+async def session_stream(server_addr,client_addr) ->AsyncIterable[str]:
     ses = None
     try:
         session_store.incr()
