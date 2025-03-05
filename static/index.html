@@ -57,19 +57,25 @@
             // コンテナ全体を包むdiv
             const container = document.createElement("div");
             container.id = id;
-            container.className = `${className}-container logoutput-container`; // 共通クラスを追加
+            container.className = `${className}-container logoutput-container`;
             
             // ヘッダー（クリック可能）
             const header = document.createElement("div");
-            header.className = "logoutput-container-header"; // 共通クラスを使用
-            header.textContent = `${className} #${no}`;
+            header.className = "logoutput-container-header";
             header.addEventListener("click", function() {
                 this.parentElement.classList.toggle("collapsed");
             });
-            
+            const index = document.createElement("span");
+            index.className = "logoutput-container-index";
+            index.textContent = `${className} #${no}`;
+            header.appendChild(index);
+            const title = document.createElement("span");
+            title.className = "logoutput-container-title";
+            header.appendChild(title);
+
             // 内容を格納するdiv
             const content = document.createElement("div");
-            content.className = "logoutput-container-content"; // 共通クラスを使用
+            content.className = "logoutput-container-content";
             
             // 構造を組み立て
             container.appendChild(header);
@@ -77,6 +83,7 @@
             
             return {
                 container: container,
+                header: title,
                 content: content
             };
         }
@@ -86,44 +93,62 @@
 
             // 既存のコンテナを探す
             let actDiv = document.getElementById(Id);
+            let actHeader;
             let actContent;
             // コンテナが存在しない場合は新規作成
             if (!actDiv) {
                 const actContainer = createCollapsibleContainer(Id, className, no);
                 actDiv = actContainer.container;
+                actHeader = actContainer.header;
                 actContent = actContainer.content;
                 parent.appendChild(actDiv);
             } else {
-                actContent = actDiv.querySelector(".logoutput-container-content"); // 共通クラスを使用
+                actHeader = actDiv.querySelector(".logoutput-container-title");
+                actContent = actDiv.querySelector(".logoutput-container-content");
             }
-            return actContent;
+            return [actHeader,actContent];
         }
 
-        function logPrint(task, agent, step, act, msg) {
+        function logPrint4(task, agent, step, act, header, msg, progress) {
+            //console.log('task:',task,'agent:',agent,'step:',step,'act:',act,'header:',header,'msg:',msg,'progress:',progress)
+            let headerContent = null;
             let parentContent = logOutput;
             if (task > 0) {
                 // タスクIDを生成
-                parentContent = ensureContainer(parentContent, 'task', task);
+                [headerContent,parentContent] = ensureContainer(parentContent, 'task', task);
                 if (agent > 0) {
                     // エージェントIDを生成
-                    parentContent = ensureContainer(parentContent, 'agent', agent);                        
+                    [headerContent,parentContent] = ensureContainer(parentContent, 'agent', agent);                        
                     if (step > 0) {
                         // ステップIDを生成
-                        parentContent = ensureContainer(parentContent, 'step', step);                        
+                        [headerContent,parentContent] = ensureContainer(parentContent, 'step', step);                        
                         if (act > 0) {
                             // アクションIDを生成
-                            parentContent = ensureContainer(parentContent, 'action', act);
+                            [headerContent,parentContent] = ensureContainer(parentContent, 'action', act);
                         }
                     }
                 }
+                if( header && headerContent ) {
+                    headerContent.textContent = `${header}`;
+                }
+                if( progress ) {
+                    const newline = document.createElement("div");
+                    newline.textContent = `progress:${progress}`;
+                    parentContent.appendChild(newline);
+                }
             }
             // メッセージを追加
-            const newline = document.createElement("div");
-            newline.textContent = msg;
-            parentContent.appendChild(newline);
-            
-            // スクロールを最下部に
-            logOutput.scrollTop = logOutput.scrollHeight;
+            if( msg) {
+                const newline = document.createElement("div");
+                newline.textContent = msg;
+                parentContent.appendChild(newline);
+                // スクロールを最下部に
+                logOutput.scrollTop = logOutput.scrollHeight;
+            }
+        }
+
+        function logPrint(msg) {
+            logPrint4(0,0,0,0,'',msg,null);
         }
 
         // SSE接続開始
@@ -193,12 +218,15 @@
                         executeTaskBtn.disabled = taskInput.value.trim() === '';
                     }
                 }
-                if( data.msg ) {
+                const header = data.header || '';
+                const msg = data.msg || '';
+                const progress = data.progress ?? null;
+                if( header || msg || progress ) {
                     const n_task = data.task || 0;
                     const n_agent = data.agent || 0;
                     const n_step = data.step || 0;
                     const n_act = data.act || 0;
-                    logPrint( n_task, n_agent, n_step, n_act, data.msg)
+                    logPrint4( n_task, n_agent, n_step, n_act, header, msg, progress)
                 }
             } catch(ex) {
 

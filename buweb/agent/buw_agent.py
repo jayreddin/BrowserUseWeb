@@ -34,61 +34,86 @@ from dotenv import load_dotenv
 logger:Logger = getLogger(__name__)
 
 class BuwWriter:
-    def __init__(self,n_task:int=0,writer:Callable[[int,int,int,int,str],None]|None=None):
-        self._writer:Callable[[int,int,int,int,str],None]|None = writer
+    def __init__(self,n_task:int=0,writer:Callable[[int,int,int,int,str,str|dict,str|None],None]|None=None):
+        self._writer:Callable[[int,int,int,int,str,str|dict,str|None],None]|None = writer
+        self._global_task:str = ""
         self._n_task:int = n_task
+        self._agent_task:str = ""
         self._n_agents:int=0
         self._n_steps:int=0
         self._n_actions:int=0
 
-    def print(self,msg):
+    def print(self, *, header:str="", msg:str|dict="", progress:str|None=None):
+        """
+        header: タスク名
+        msg: メッセージ
+        progress: 進捗 Noneの場合は進捗変更なし
+        """
         try:
+            timestamp = datetime.now().strftime("%H:%M:%S")
             if self._writer is None:
-                header = ""
+                index = ""
                 if self._n_task>0:
-                    header = f"Task:{self._n_task}"
+                    index = f"Task:{self._n_task}"
                 if self._n_agents>0:
-                    header = f"{header} Agent:{self._n_agents}"
+                    index = f"{index} Agent:{self._n_agents}"
                 if self._n_steps>0:
-                    header = f"{header} Step:{self._n_steps}"
+                    index = f"{index} Step:{self._n_steps}"
                 if self._n_actions>0:
-                    header = f"{header} Act:{self._n_actions}"
-                print(f"##AgemtPrint {header} {msg}")
+                    index = f"{index} Act:{self._n_actions}"
+                print(f"##AgemtPrint {timestamp} {index} {header} {msg}")
             else:
-                self._writer(self._n_task, self._n_agents, self._n_steps, self._n_actions, msg)
+                self._writer(self._n_task, self._n_agents, self._n_steps, self._n_actions, header, msg, progress)
         except Exception as e:
             print(f"##AgemtPrint {e}")
 
-    async def start_agent(self,n_steps:int):
+    async def start_global_task(self,global_task:str):
+        self._n_agents = 0
+        self._n_steps = 0
+        self._n_actions = 0
+        if self._global_task:
+            global_task = self._global_task
+        self.print( header=global_task, progress="running...")
+
+    async def start_agent(self,agent_task:str):
         """agentがrun開始したときに呼ばれる"""
         self._n_agents += 1
         self._n_steps = 0
         self._n_actions = 0
-        self.print(f"----------------")
-        self.print(f"Agent start")
+        if self._agent_task:
+            agent_task = self._agent_task
+        self.print( header=agent_task, progress="running..." )
 
-    async def start_plannner(self,n_steps:int):
+    async def start_plannner(self, n_steps:int):
         self._n_steps = n_steps
-        self.print(f"Planner start")
+        self.print(progress=f"planning...")
 
     async def done_plannner(self,plan:str|None):
-        self.print(f"Plan: {plan}")
+        self.print( msg=f"Plan: {plan}",progress="")
 
-    async def get_next_action(self):
+    async def start_get_next_action(self, n_steps:int):
+        self._n_steps = n_steps
         self._n_actions = 0
-        if self._n_steps>0:
-            self.print(f"Evaluate result and get next action")
-
-    async def new_step_callback(self, state: BrowserState, output: AgentOutput, step: int):
         if self._n_steps>1:
-            self.print(f'Eval: {output.current_state.evaluation_previous_goal}')
+            self.print( progress=f"Evaluate result and get next action")
 
-        # self.print(f'Memory: {output.current_state.memory}')
-        self._n_steps = step
+    async def done_get_next_action(self, state: BrowserState, output: AgentOutput, step: int):
         self._n_actions = 0
-        self.print(f'Next goal: {output.current_state.next_goal}')
-        # for i, action in enumerate(output.action):
-        #     self.print(f'Action {i + 1}/{len(output.action)}: {action.model_dump_json(exclude_unset=True)}')
+        if self._n_steps>1:
+            self._n_steps -= 1
+            self.print( msg=f'{output.current_state.evaluation_previous_goal}',progress="")
+            self._n_steps += 1
+        self.print( header=f'{output.current_state.next_goal}',progress="")
+        for i, action in enumerate(output.action):
+            self._n_actions = i + 1
+            headers=[]
+            for action_name, params in action.model_dump(exclude_unset=True).items():
+                if params is not None and action_name != "done":
+                    headers.append(f"{action_name} {params}")
+                else:
+                    headers.append(f"{action_name}")
+            self.print( header=','.join(headers) )
+        self._n_actions = 0
 
     async def action(self,action:ActionModel|ActionResult):
         if isinstance(action,ActionModel):
@@ -102,49 +127,51 @@ class BuwWriter:
             for action_name, params in action.model_dump(exclude_unset=True).items():
                 if params is None:
                     continue
-                self.print(f"Action:{action_name} {params}")
+                self.print( progress="running..." )
         except Exception as e:
-            self.print(f"Action:{action} {e}")
+            self.print( msg=f"{e}", progress="error")
 
     async def done_action(self,result:ActionResult):
         content = result.extracted_content
         if content is None or len(content)==0:
             content = ""
-            self.print(f"Done")
+            self.print( progress="" )
         else:
             content = f"{content}".replace("\n","\\n").replace("\r","\\r")
             if len(content)>=100:
                 content = content[:40]+" ....... " + content[-40:]
-            self.print( f"extracted_content:{content}" )
+            self.print( msg=f"extracted_content:{content}", progress="" )
 
     async def done_agent(self, history: AgentHistoryList):
-        self.print(f"Done:")
-
-    async def all_done_agent(self):
+        self._agent_task = ""
         self._n_steps = 0
         self._n_actions = 0
         self._n_agents = 0
+        self.print(progress="")
+
+    async def done_global_task(self,progress:str=""):
+        self._agent_task = ""
+        self._global_task = ""
+        self._n_agents = 0
+        self._n_steps = 0
+        self._n_actions = 0
+        self._n_agents = 0
+        self.print(progress=progress)
 
     async def external_agent_status_raise_error_callback(self) ->bool:
         return False
 
 class BuwAgent(Agent):
 
-    def print(self,msg):
-        if self._writer is None:
-            print(f"##AgemtPrint {msg}")
-        else:
-            self._writer.print(msg)
-
     async def run(self, max_steps: int = 100, wr:BuwWriter|None=None) -> AgentHistoryList:
         logger.setLevel(LvError)
         self._writer:BuwWriter|None = wr
         if self._writer is not None:
-            self.register_new_step_callback = self._writer.new_step_callback
+            self.register_new_step_callback = self._writer.done_get_next_action
             self.register_done_callback = self._writer.done_agent
             #self.register_external_agent_status_raise_error_callback = self.external_agent_status_raise_error_callback
         if self._writer:
-            await self._writer.start_agent(self.state.n_steps)
+            await self._writer.start_agent(self.task)
         ret = await super().run(max_steps)
         return ret
 
@@ -161,7 +188,7 @@ class BuwAgent(Agent):
 
     async def get_next_action(self, input_messages: list[BaseMessage]) -> AgentOutput:
         if self._writer:
-            await self._writer.get_next_action()
+            await self._writer.start_get_next_action(self.state.n_steps)
         response = await super().get_next_action(input_messages)
         return response
 

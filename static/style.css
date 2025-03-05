@@ -167,7 +167,6 @@ body {
 .logoutput-container-header {
     background-color: #eee;
     cursor: pointer;
-    font-weight: bold;
     position: relative;
     padding-left: 5px;
 }
@@ -183,6 +182,16 @@ body {
 /* 折りたたまれた状態のインジケーター */
 .logoutput-container.collapsed .logoutput-container-header::after {
     transform: rotate(-90deg);
+}
+.logoutput-container-index {
+    font-weight: bold;
+}
+.logoutput-container-title {
+    padding-left: 5px;
+}
+.logoutput-container.collapsed .logoutput-container-title {
+    padding-left: 5px;
+    overflow: hidden;
 }
 
 /* ログ出力内容の共通スタイル */

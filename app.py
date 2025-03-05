@@ -113,7 +113,7 @@ async def session_stream(server_addr,client_addr):
         before_time = 0.0
         while ses is not None:
             try:
-                n_task,n_agent,n_step,n_act,msg = await ses.get_msg(timeout=1)
+                n_task,n_agent,n_step,n_act,header,msg,progress = await ses.get_msg(timeout=1)
                 res = ses.get_status()
                 now = time.time()
                 if msg is None:
@@ -128,7 +128,9 @@ async def session_stream(server_addr,client_addr):
                         res['step'] = n_step
                     if n_act>0:
                         res['act'] = n_act
+                    res['header'] = header
                     res['msg'] = msg
+                    res['progress'] = progress
                 yield f"data: {json.dumps(res, ensure_ascii=False)}\n\n"
                 before_res = res
                 before_time = now
@@ -234,8 +236,6 @@ def main():
 
     try:
         # サーバ起動
-        #app.config['BODY_TIMEOUT'] = 60
-        #app.config['RESPONSE_TIMEOUT'] = 60
         app.run(host='0.0.0.0', port=5000, debug=False )
     finally:
         # 終了処理

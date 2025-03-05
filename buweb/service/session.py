@@ -128,24 +128,24 @@ class BwSession:
         self._n_tasks:int = 0
         self._task_expand:bool = False
         self.task:BwTask|BwResearchTask|None = None
-        self.message_queue: Queue = Queue()
+        self.message_queue: Queue[tuple[int,int,int,int,str,str,str|None]] = Queue()
         self.current_future: Future|None = None
 
     def touch(self):
         self.last_access:datetime = datetime.now()
 
     def _write_msg(self,msg):
-        self._write_msg4( self._n_tasks,0,0,0,msg)
+        self._write_msg4( self._n_tasks,0,0,0,"",msg,None)
 
-    def _write_msg4(self,n_task:int,n_agent:int,n_step:int,n_act:int,msg):
+    def _write_msg4(self,n_task:int,n_agent:int,n_step:int,n_act:int,header:str,msg,progress:str|None):
         self.touch()
         if isinstance(msg,dict|list):
             msgstr = json.dumps(msg,ensure_ascii=False)
         else:
             msgstr = str(msg)
-        self.message_queue.put( (n_task,n_agent,n_step,n_act,msgstr) )
+        self.message_queue.put( (n_task,n_agent,n_step,n_act,header,msgstr,progress) )
 
-    async def get_msg(self,*,timeout:float=1.0) ->tuple[int,int,int,int,str|None]:
+    async def get_msg(self,*,timeout:float=1.0) ->tuple[int,int,int,int,str|None,str|None,str|None]:
         break_time = time.time() + max(0, timeout)
         while True:
             try:
@@ -156,7 +156,7 @@ class BwSession:
                 if now<break_time:
                     await asyncio.sleep(0.2)
                     continue
-                return (0,0,0,0,None)
+                return (0,0,0,0,None,None,None)
 
     def is_vnc_running(self) -> int:
         return self.display_num if self.display_num>0 and is_proc(self.vnc_proc) else 0
@@ -305,6 +305,7 @@ class BwSession:
         buw:BuwWriter = BuwWriter( n_task=self._n_tasks, writer=self._write_msg4)
         try:
             self.touch()
+            await buw.start_global_task(prompt)
             await self.setup_vnc_server()
             await self.launch_chrome()
             if mode==1:
@@ -323,17 +324,14 @@ class BwSession:
             await self.task.stop()
         except CanNotStartException as ex:
             logger.warning(f"[{self.session_id}] {str(ex)}")
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            buw.print(f"[{timestamp}] {str(ex)}")
+            await buw.done_global_task(str(ex))
         except Exception as ex:
             logger.exception(f"[{self.session_id}] {str(ex)}")
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            buw.print("[{timestamp}] {str(ex)}")
+            await buw.done_global_task(str(ex))
         finally:
             self.current_future = None
             self.task = None
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            buw.print(f"[{timestamp}] タスクが完了しました")
+            await buw.done_global_task()
 
     async def cancel_task(self) -> dict:
         """タスクをキャンセル"""

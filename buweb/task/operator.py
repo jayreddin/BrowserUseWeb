@@ -83,7 +83,25 @@ class BwTask:
 
     def logPrint(self,msg):
         if self._writer is not None:
-            self._writer.print(msg)
+            self._writer.print(msg=msg)
+        else:
+            logger.info( f"##logPrint {msg}")
+
+    async def start_global_task(self,global_task:str):
+        if self._writer is not None:
+            await self._writer.start_global_task(global_task)
+        else:
+            logger.info(f"##logPrint START\n-------------------------------------\n実行開始\n-------------------------------------")
+
+    async def done_global_task(self):
+        if self._writer is not None:
+            await self._writer.done_global_task()
+        else:
+            logger.info( f"##logPrint DONE")
+
+    def logPrintX(self, *, header:str="", msg:str="", progress:str|None=None):
+        if self._writer is not None:
+            self._writer.print( header=header,msg=msg,progress=progress)
         else:
             logger.info( f"##logPrint {msg}")
 
@@ -94,18 +112,14 @@ class BwTask:
         now = datetime.now()
         now_datetime = now.strftime("%A, %Y-%m-%d %H:%M")
 
-        x_extractor = LLM.get_lite_model(self._operator_llm)
-        x_planner:str = self._plan_llm._full_name if self._plan_llm is not None else "None"
-        self.logPrint("")
-        self.logPrint("-------------------------------------")
-        self.logPrint(f"実行開始: {now_datetime}")
-        self.logPrint("-------------------------------------")
+        if self._plan_llm is not None:
+            self.logPrint(f"planner:{self._plan_llm._full_name}")
         self.logPrint(f"operator:{self._operator_llm._full_name}")
+        x_extractor = LLM.get_lite_model(self._operator_llm)
         self.logPrint(f"extractor:{x_extractor._full_name}")
-        self.logPrint(f"planner:{x_planner}")
         llm_cache:BaseCache = self._llm_cache
         operator_llm:BaseChatModel = create_model(self._operator_llm, cache=llm_cache)
-        test_res = await operator_llm.ainvoke("動作テストです。正常稼働ならYesを返信して。")
+        test_res = await operator_llm.ainvoke(f"{now_datetime}動作テストです。正常稼働ならYesを返信して。")
         extraction_llm:BaseChatModel = create_model(x_extractor, cache=llm_cache)
         planner_llm:BaseChatModel|None = create_model(self._plan_llm, cache=llm_cache) if self._plan_llm is not None else None
 
@@ -138,6 +152,7 @@ class BwTask:
 
         final_str:str|None = None
         try:
+            self._writer._agent_task = task
             self._agent = BuwAgent(
                 task=web_task,
                 llm=operator_llm, page_extraction_llm=extraction_llm, planner_llm=planner_llm, planner_interval=1,
@@ -155,7 +170,6 @@ class BwTask:
             self.logPrint(f"停止しました {str(ex)}")
         finally:
             self._agent = None
-            await self._writer.all_done_agent()
         #---------------------------------
         if final_str:
             post_llm = create_model(LLM.Gemini20Flash) # ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
