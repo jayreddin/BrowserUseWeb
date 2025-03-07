@@ -22,6 +22,7 @@ from browser_use.controller.service import Controller, DoneAction
 from main_content_extractor import MainContentExtractor
 from langchain.schema import BaseMessage, SystemMessage, HumanMessage
 from json_repair import repair_json
+from buweb.agent.buw_agent import BuwWriter
 from buweb.Research.agent.custom_prompts import CustomSystemPrompt, CustomAgentMessagePrompt
 from buweb.controller.buw_controller import BwController as CustomController
 
@@ -44,7 +45,7 @@ async def deep_research(task:str, llm:BaseChatModel, agent_state=None,
                         browser:Browser|None=None,
                         browser_context:BrowserContext|None=None,
                         sensitive_data:dict|None=None,
-                        writer:Callable[[str],None]=dmy_write, inter:dict={},
+                        writer:BuwWriter|None=None, inter:dict={},
                         **kwargs) ->tuple[str,str|None]:
     task_id = 'testrun' # str(uuid4())
     save_dir = kwargs.get("save_dir", os.path.join(f"./tmp/deep_research/{task_id}"))

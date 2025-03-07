@@ -314,7 +314,7 @@ class BwSession:
                                 llm_cache=llm_cache, llm=llm, plan_llm=planner_llm,
                                 cdp_port=self.cdp_port,
                                 sensitive_data=sensitive_data,
-                                writer=self._write_msg)
+                                writer=buw)
             else:
                 self.task = BwTask( dir=self.WorkDir,
                                 llm_cache=llm_cache, llm=llm, plan_llm=planner_llm,

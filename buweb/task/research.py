@@ -31,7 +31,7 @@ from pydantic import BaseModel
 from logging import Logger,getLogger
 from dotenv import load_dotenv
 
-from buweb.agent.buw_agent import BuwAgent
+from buweb.agent.buw_agent import BuwAgent, BuwWriter
 from buweb.controller.buw_controller import BwController
 from buweb.model.model import LLM, create_model
 from buweb.Research.task.deep_research import deep_research
@@ -52,14 +52,14 @@ class BwResearchTask:
                 llm_cache:BaseCache|None=None, llm:LLM=LLM.Gpt4oMini, plan_llm:LLM|None=None,
                 chrome_instance_path:str|None=None, cdp_port:int|None=None, trace_path:str|None=None,
                 sensitive_data:dict[str,str]|None=None,
-                writer:Callable[[str],None]|None=None):
+                writer:BuwWriter|None=None):
         self._work_dir:str = dir
         if llm_cache is None:
             llm_cache = SQLiteCache( os.path.join(dir,'langchain_cache.db') )
         self._operator_llm:LLM = llm
         self._plan_llm:LLM|None = plan_llm
         self._llm_cache:BaseCache = llm_cache
-        self._writer:Callable[[str],None]|None = writer
+        self._writer:BuwWriter|None = writer
         self.cdp_port:int|None = cdp_port
         bw_context_config:BrowserContextConfig = BrowserContextConfig(
             maximum_wait_page_load_time=1.2,
@@ -90,7 +90,7 @@ class BwResearchTask:
 
     def logPrint(self,msg):
         if self._writer is not None:
-            self._writer(msg)
+            self._writer.print(msg=msg)
         else:
             logger.info(msg)
 
@@ -141,7 +141,7 @@ class BwResearchTask:
             browser=self._browser,
             browser_context=self._browser_context,
             sensitive_data=self._sensitive_data,
-            writer=self.logPrint,
+            writer=self._writer,
             save_dir=self._work_dir, inter=self._inter,
         )
 
@@ -166,7 +166,7 @@ class BwResearchTask:
             agent_list:list[Agent] = self._inter.get('agents',[])
             for agent in agent_list:
                 if agent:
-                    if not agent._stopped:
+                    if not agent.state.stopped:
                         agent.stop()
                     await safe_close(agent.browser_context)
                     await safe_close(agent.browser)

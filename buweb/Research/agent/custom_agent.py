@@ -41,6 +41,7 @@ from json_repair import repair_json
 from .custom_message_manager import CustomMessageManager
 from .custom_views import CustomAgentOutput, CustomAgentStepInfo
 
+from buweb.agent.buw_agent import BuwWriter
 logger = logging.getLogger(__name__)
 
 
@@ -90,7 +91,7 @@ class CustomAgent(Agent):
             page_extraction_llm: Optional[BaseChatModel] = None,
             planner_llm: Optional[BaseChatModel] = None,
             planner_interval: int = 1,  # Run planner every N steps
-            writer:Callable[[str],None]|None=None
+            writer:BuwWriter|None=None
     ):
         super().__init__(
             task=task,
@@ -151,7 +152,7 @@ class CustomAgent(Agent):
             message_context=self.message_context,
             sensitive_data=self.sensitive_data
         )
-        self._writer:Callable[[str],None]|None = writer
+        self._writer:BuwWriter|None = writer
 
     def print(self,msg):
         if self._writer is None:
