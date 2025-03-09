@@ -5,5 +5,6 @@ websockify>=0.12.0
 python-dotenv>=1.0.1
 json-repair
 langchain-community==0.3.18
+googletrans>=4.0.2
 #Pillow
 #MainContentExtractor

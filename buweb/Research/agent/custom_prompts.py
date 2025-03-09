@@ -20,7 +20,7 @@ class CustomSystemPrompt(SystemPrompt):
 		"""Load the prompt template from the markdown file."""
 		try:
 			# This works both in development and when installed as a package
-			with importlib.resources.files('buweb.Reserch.agent').joinpath('system_prompt.md').open('r') as f:
+			with importlib.resources.files('buweb.Research.agent').joinpath('system_prompt.md').open('r') as f:
 				self.prompt_template = f.read()
 		except Exception as e:
 			raise RuntimeError(f'Failed to load system prompt template: {e}')

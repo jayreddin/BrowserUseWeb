@@ -167,7 +167,7 @@ class CustomAgent(Agent):
         if self._writer is None:
             print(msg)
         else:
-            self._writer(msg)
+            self._writer.print(msg=msg)
 
     def _setup_action_models(self) -> None:
         """Setup dynamic action models from controller's registry"""
@@ -231,7 +231,7 @@ class CustomAgent(Agent):
                 memory="",
                 task_progress="",
             )
-        await super().step(x_step_info)
+        await super().step(self.x_step_info)
 
     @time_execution_async("--get_next_action")
     async def get_next_action(self, input_messages: list[BaseMessage]) -> AgentOutput:
