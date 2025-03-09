@@ -44,9 +44,10 @@ async def test_hilight():
     await page.wait_for_load_state()
     # ---
     session = await browser_context.get_session()
-    cached_selector_map = session.cached_state.selector_map
-    cached_path_hashes = set(e.hash.branch_path_hash for e in cached_selector_map.values())
-    print(f"cached_path_hashes:{cached_path_hashes}")
+    if session is not None and session.cached_state is not None:
+        cached_selector_map = session.cached_state.selector_map
+        cached_path_hashes = set(e.hash.branch_path_hash for e in cached_selector_map.values())
+        print(f"cached_path_hashes:{cached_path_hashes}")
     # ---
     new_state = await browser_context.get_state()
     new_path_hashes = set(e.hash.branch_path_hash for e in new_state.selector_map.values())
