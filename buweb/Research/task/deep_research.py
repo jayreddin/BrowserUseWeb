@@ -181,7 +181,8 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
             search_iteration += 1
             ititle = f"Ite:{search_iteration:02d}"
             logger.info(f"{ititle} Start Search...")
-            writer(f"{ititle} Start Search...")
+            if writer:
+                writer.print(msg=f"{ititle} Start Search...")
             history_query_ = json.dumps(history_query, indent=4)
             history_infos_ = json.dumps(history_infos, indent=4)
             query_prompt = f"This is search {search_iteration} of {max_search_iterations} maximum searches allowed.\n User Instruction:{task} \n Previous Queries:\n {history_query_} \n Previous Search Results:\n {history_infos_}\n"
@@ -198,8 +199,9 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
             query_plan = ai_query_content["plan"]
             logger.info(f"{ititle} Current Iteration Planing:")
             logger.info(query_plan)
-            writer(f"{ititle} Current Iteration Planing:")
-            writer(query_plan)
+            if writer:
+                writer.print( msg=f"{ititle} Current Iteration Planing:")
+                writer.print( msg=query_plan)
             query_tasks = ai_query_content["queries"]
             if not query_tasks:
                 break
@@ -208,8 +210,9 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
                 history_query.extend(query_tasks)
                 logger.info(f"{ititle} Query tasks:")
                 logger.info(query_tasks)
-                writer(f"{ititle} Query tasks:")
-                writer(query_tasks)
+                if writer:
+                    writer.print(msg=f"{ititle} Query tasks:")
+                    writer.print(msg=query_tasks)
 
             # 2. Perform Web Search and Auto exec
             # Parallel BU agents
@@ -223,7 +226,6 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
                 browser_context=browser_context,
                 use_vision=use_vision,
                 system_prompt_class=CustomSystemPrompt,
-                agent_prompt_class=CustomAgentMessagePrompt,
                 max_actions_per_step=5,
                 controller=controller,
                 generate_gif=history_gif,
@@ -241,7 +243,8 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
                 title = f"Query:{search_iteration:02d}-{i:03d}"
                 agent = agents[i]
                 logger.info(f"{title} Search...")
-                writer(f"{title} Search...")
+                if writer:
+                    writer.print( msg=f"{title} Search...")
                 res = await agent.run(max_steps=kwargs.get("max_steps", 10))
                 if 'stop' in inter:
                     raise Exception("Stop Deep Research")
@@ -281,14 +284,16 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
             # 3. Summarize Search Result
 
         logger.info("\nFinish Searching, Start Generating Report...")
-        writer("\nFinish Searching, Start Generating Report...")
+        if writer:
+            writer.print(msg="\nFinish Searching, Start Generating Report...")
 
         # 5. Report Generation in Markdown (or JSON if you prefer)
         return await generate_final_report(task, history_infos, save_dir, llm)
 
     except Exception as e:
         logger.error(f"Deep research Error: {e}")
-        writer(f"Deep research Error: {e}")
+        if writer:
+            writer.print(msg=f"Deep research Error: {e}")
         return await generate_final_report(task, history_infos, save_dir, llm, str(e))
     finally:
         await safe_close(browser)

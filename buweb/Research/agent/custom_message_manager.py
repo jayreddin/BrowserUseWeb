@@ -3,10 +3,11 @@ from __future__ import annotations
 import logging
 from typing import List, Optional, Type, Dict
 
-from browser_use.agent.message_manager.service import MessageManager
+from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
 from browser_use.agent.message_manager.views import MessageHistory
 from browser_use.agent.prompts import SystemPrompt 
 from browser_use.agent.views import ActionResult, AgentStepInfo, ActionModel
+from browser_use.agent.views import ActionResult, AgentOutput, AgentStepInfo, MessageManagerState
 from browser_use.browser.views import BrowserState
 from langchain_core.language_models import BaseChatModel
 from langchain_anthropic import ChatAnthropic
@@ -19,105 +20,100 @@ from langchain_core.messages import (
 )
 from langchain_openai import ChatOpenAI
 # from ..utils.llm import DeepSeekR1ChatOpenAI
-from .custom_prompts import CustomAgentMessagePrompt as AgentMessagePrompt
+from .custom_prompts import CustomAgentMessagePrompt
 from .custom_views import CustomAgentStepInfo
 
 logger = logging.getLogger(__name__)
 
-class DeepSeekR1ChatOpenAI(BaseChatModel):
-    pass
-
 class CustomMessageManager(MessageManager):
-    def __init__(
-            self,
-            llm: BaseChatModel,
-            task: str,
-            action_descriptions: str,
-            system_prompt_class: Type[SystemPrompt],
-            agent_prompt_class: Type[AgentMessagePrompt],
-            max_input_tokens: int = 128000,
-            estimated_characters_per_token: int = 3,
-            image_tokens: int = 800,
-            include_attributes: list[str] = [],
-            max_error_length: int = 400,
-            max_actions_per_step: int = 10,
-            message_context: Optional[str] = None,
-            sensitive_data: Optional[Dict[str, str]] = None,
-    ):
-        super().__init__(
-            llm=llm,
-            task=task,
-            action_descriptions=action_descriptions,
-            system_prompt_class=system_prompt_class,
-            max_input_tokens=max_input_tokens,
-            estimated_characters_per_token=estimated_characters_per_token,
-            image_tokens=image_tokens,
-            include_attributes=include_attributes,
-            max_error_length=max_error_length,
-            max_actions_per_step=max_actions_per_step,
-            message_context=message_context,
-            sensitive_data=sensitive_data
-        )
-        self.agent_prompt_class:Type[AgentMessagePrompt] = agent_prompt_class
-        # Custom: Move Task info to state_message
-        self.history = MessageHistory()
+
+    def _init_messages(self) -> None:
+        """Initialize the message history with system message, context, task, and other initial messages"""
         self._add_message_with_tokens(self.system_prompt)
-        
-        if self.message_context:
-            context_message = HumanMessage(content=self.message_context)
+
+        if self.settings.message_context:
+            context_message = HumanMessage(content='Context for the task' + self.settings.message_context)
             self._add_message_with_tokens(context_message)
 
-    def cut_messages(self):
-        """Get current message list, potentially trimmed to max tokens"""
-        diff = self.history.total_tokens - self.max_input_tokens
-        min_message_len = 2 if self.message_context is not None else 1
-        
-        while diff > 0 and len(self.history.messages) > min_message_len:
-            self.history.remove_message(min_message_len)  # always remove the oldest message
-            diff = self.history.total_tokens - self.max_input_tokens
-        
+        # Custom: Move Task info to state_message
+        #task_message = HumanMessage(
+        #    content=f'Your ultimate task is: """{self.task}""". If you achieved your ultimate task, stop everything and use the done action in the next step to complete the task. If not, continue as usual.'
+        #)
+        #self._add_message_with_tokens(task_message)
+
+        if self.settings.sensitive_data:
+            info = f'Here are placeholders for sensitve data: {list(self.settings.sensitive_data.keys())}'
+            info += 'To use them, write <secret>the placeholder name</secret>'
+            info_message = HumanMessage(content=info)
+            self._add_message_with_tokens(info_message)
+
+        placeholder_message = HumanMessage(content='Example output:')
+        self._add_message_with_tokens(placeholder_message)
+
+        tool_calls = [
+            {
+                'name': 'CustomAgentOutput',
+                'args': {
+                    'current_state': {
+                        'prev_action_evaluation': 'Unknown - No previous actions to evaluate.',
+                        'important_contents': '',
+                        'completed_contents': '',
+                        'thought': 'Now Google is open. Need to type OpenAI to search.',
+                        'summary': 'Type OpenAI to search.',
+                    },
+                    'action': [{'click_element': {'index': 0}}],
+                },
+                'id': str(self.state.tool_id),
+                'type': 'tool_call',
+            }
+        ]
+
+        example_tool_call = AIMessage(
+            content='',
+            tool_calls=tool_calls,
+        )
+        self._add_message_with_tokens(example_tool_call)
+        self.add_tool_message(content='Browser started')
+
+        placeholder_message = HumanMessage(content='[Your task history memory starts here]')
+        self._add_message_with_tokens(placeholder_message)
+
+        if self.settings.available_file_paths:
+            filepaths_msg = HumanMessage(content=f'Here are file paths you can use: {self.settings.available_file_paths}')
+            self._add_message_with_tokens(filepaths_msg)
+       
     def add_state_message(
-            self,
-            state: BrowserState,
-            actions: Optional[List[ActionModel]] = None,
-            result: Optional[List[ActionResult]] = None,
-            step_info: Optional[AgentStepInfo] = None,
-            use_vision=True,
+        self,
+        state: BrowserState,
+        result: Optional[List[ActionResult]] = None,
+        step_info: Optional[CustomAgentStepInfo] = None,
+        use_vision=True,
     ) -> None:
         """Add browser state as human message"""
+
+        # if keep in memory, add to directly to history and add state without result
+        if result:
+            for r in result:
+                if r.include_in_memory:
+                    if r.extracted_content:
+                        msg = HumanMessage(content='Action result: ' + str(r.extracted_content))
+                        self._add_message_with_tokens(msg)
+                    if r.error:
+                        # if endswith \n, remove it
+                        if r.error.endswith('\n'):
+                            r.error = r.error[:-1]
+                        # get only last line of error
+                        last_line = r.error.split('\n')[-1]
+                        msg = HumanMessage(content='Action error: ' + last_line)
+                        self._add_message_with_tokens(msg)
+                    result = None  # if result in history, we dont want to add it again
+
         # otherwise add state message and result to next message (which will not stay in memory)
-        state_message = self.agent_prompt_class(
+        state_message = CustomAgentMessagePrompt(
             state,
-            actions,
             result,
-            include_attributes=self.include_attributes,
-            max_error_length=self.max_error_length,
+            include_attributes=self.settings.include_attributes,
             step_info=step_info,
         ).get_user_message(use_vision)
         self._add_message_with_tokens(state_message)
-    
-    def _count_text_tokens(self, text: str) -> int:
-        if isinstance(self.llm, (ChatOpenAI, ChatAnthropic, DeepSeekR1ChatOpenAI)):
-            try:
-                tokens = self.llm.get_num_tokens(text)
-            except Exception:
-                tokens = (
-					len(text) // self.estimated_characters_per_token
-				)  # Rough estimate if no tokenizer available
-        else:
-            tokens = (
-				len(text) // self.estimated_characters_per_token
-			)  # Rough estimate if no tokenizer available
-        return tokens
 
-    def _remove_state_message_by_index(self, remove_ind=-1) -> None:
-        """Remove last state message from history"""
-        i = len(self.history.messages) - 1
-        remove_cnt = 0
-        while i >= 0:
-            if isinstance(self.history.messages[i].message, HumanMessage): 
-                remove_cnt += 1
-            if remove_cnt == abs(remove_ind):
-                self.history.remove_message(i)
-                break
-            i -= 1
