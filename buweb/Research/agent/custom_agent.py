@@ -19,6 +19,7 @@ from browser_use.agent.views import (
     AgentStepInfo,
     AgentState,
     ToolCallingMethod,
+    StepMetadata
 )
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
 from browser_use.browser.browser import Browser
@@ -171,38 +172,66 @@ class CustomAgent(Agent):
 
     def _setup_action_models(self) -> None:
         """Setup dynamic action models from controller's registry"""
-        # Get the dynamic action model from controller's registry
         self.ActionModel = self.controller.registry.create_action_model()
         # Create output model with the dynamic actions
         self.AgentOutput = CustomAgentOutput.type_with_custom_actions(self.ActionModel)
+        # used to force the done action when max_steps is reached
+        self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'])
+        self.DoneAgentOutput = CustomAgentOutput.type_with_custom_actions(self.DoneActionModel)
 
     def _log_response(self, response: CustomAgentOutput) -> None:
         """Log the model's response"""
-        if "Success" in response.current_state.prev_action_evaluation:
-            emoji = "✅"
-        elif "Failed" in response.current_state.prev_action_evaluation:
-            emoji = "❌"
+        if 'Success' in response.current_state.prev_action_evaluation:
+            emoji = '✅'
+        elif 'Failed' in response.current_state.prev_action_evaluation:
+            emoji = '❌'
         else:
-            emoji = "🤷"
+            emoji = '🤷'
 
-        logger.info(f"{emoji} Eval: {response.current_state.prev_action_evaluation}")
-        logger.info(f"🧠 New Memory: {response.current_state.important_contents}")
-        logger.info(f"⏳ Task Progress: \n{response.current_state.task_progress}")
-        logger.info(f"📋 Future Plans: \n{response.current_state.future_plans}")
-        logger.info(f"🤔 Thought: {response.current_state.thought}")
-        logger.info(f"🎯 Summary: {response.current_state.summary}")
+        logger.info(f'{emoji} Eval: {response.current_state.prev_action_evaluation}')
+        logger.info(f'🧠 New Memory: {response.current_state.important_contents}')
+        logger.info(f'⏳ Task Progress: {response.current_state.completed_contents}')
+        logger.info(f'🤔 Thought: {response.current_state.thought}')
+        logger.info(f'🎯 Summary: {response.current_state.summary}')
         for i, action in enumerate(response.action):
             logger.info(
-                f"🛠️  Action {i + 1}/{len(response.action)}: {action.model_dump_json(exclude_unset=True)}"
+                f'🛠️  Action {i + 1}/{len(response.action)}: {action.model_dump_json(exclude_unset=True)}'
             )
-        self.print(f'Eval: {response.current_state.prev_action_evaluation}')
-        self.print(f"New Memory: {response.current_state.important_contents}")
-        self.print(f"Task Progress: \n{response.current_state.task_progress}")
-        self.print(f"Future Plans: \n{response.current_state.future_plans}")
-        self.print(f"Thought: {response.current_state.thought}")
-        self.print(f"Summary: {response.current_state.summary}")
+        self.print(f'{emoji} Eval: {response.current_state.prev_action_evaluation}')
+        self.print(f'🧠 New Memory: {response.current_state.important_contents}')
+        self.print(f'⏳ Task Progress: {response.current_state.completed_contents}')
+        self.print(f'🤔 Thought: {response.current_state.thought}')
+        self.print(f'🎯 Summary: {response.current_state.summary}')
         for i, action in enumerate(response.action):
-            self.print(f'Action {i + 1}/{len(response.action)}: {action.model_dump_json(exclude_unset=True)}')
+            self.print(
+                f'🛠️  Action {i + 1}/{len(response.action)}: {action.model_dump_json(exclude_unset=True)}'
+            )
+
+    def _make_history_item(
+        self,
+        model_output: AgentOutput | None,
+        state: BrowserState,
+        result: list[ActionResult],
+        metadata: Optional[StepMetadata] = None,
+    ) -> None:
+        """Create and store history item"""
+
+        if model_output:
+            interacted_elements = AgentHistory.get_interacted_element(model_output, state.selector_map)
+        else:
+            interacted_elements = [None]
+
+        state_history = BrowserStateHistory(
+            url=state.url,
+            title=state.title,
+            tabs=state.tabs,
+            interacted_element=interacted_elements,
+            screenshot=state.screenshot,
+        )
+
+        history_item = AgentHistory(model_output=model_output, result=result, state=state_history, metadata=metadata)
+
+        self.state.history.history.append(history_item)
 
     def update_step_info( self, model_output: CustomAgentOutput, step_info: CustomAgentStepInfo ):
         """
@@ -236,22 +265,25 @@ class CustomAgent(Agent):
     @time_execution_async("--get_next_action")
     async def get_next_action(self, input_messages: list[BaseMessage]) -> AgentOutput:
         parsed = await super().get_next_action(input_messages)
+        self._log_response(parsed)
         if self.x_step_info is not None:
             self.update_step_info(parsed, self.x_step_info)
         return parsed
 
     async def run(self, max_steps: int = 100) -> AgentHistoryList:
-        g = self.settings.generate_gif
-        self.settings.generate_gif = False
         self.x_step_info = None
         try:
             return await super().run(max_steps)
         finally:
             self.x_step_info = None
-            self.settings.generate_gif = g
-            if self.settings.generate_gif:
-                output_path: str = 'agent_history.gif'
-                if isinstance(self.settings.generate_gif, str):
-                    output_path = self.settings.generate_gif
-                create_history_gif(task=self.task, history=self.state.history, output_path=output_path)
 
+    async def multi_act( self, actions: list[ActionModel], check_for_new_elements: bool = True ) -> list[ActionResult]:
+        try:
+            return await super().multi_act(actions, check_for_new_elements)
+        except Exception as e:
+            print("".join(traceback.format_exception(type(e), e, e.__traceback__)))
+            raise e
+
+    async def _handle_step_error(self, error: Exception) -> list[ActionResult]:
+        print("".join(traceback.format_exception(type(error), error, error.__traceback__)))
+        return await super()._handle_step_error(error)

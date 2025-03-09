@@ -1,5 +1,5 @@
 import pdb
-
+import traceback
 import asyncio
 import os
 import sys
@@ -291,6 +291,7 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
         return await generate_final_report(task, history_infos, save_dir, llm)
 
     except Exception as e:
+        traceback.print_exc()
         log_error(f"Deep research Error: {e}")
         return await generate_final_report(task, history_infos, save_dir, llm, str(e))
     finally:
