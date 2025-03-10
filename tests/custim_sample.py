@@ -2,8 +2,11 @@ import os
 import time
 import asyncio
 import json
+import re
+import logging
 from logging import getLogger
 from importlib.resources import files
+from playwright.async_api import Page
 
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -13,27 +16,31 @@ from browser_use import Agent, Browser
 from browser_use.browser.context import BrowserContext, BrowserContextConfig
 from browser_use.browser.views import BrowserError, BrowserState
 from browser_use.dom.service import DomService
-from browser_use.dom.views import DOMElementNode
+from browser_use.dom.views import DOMElementNode,SelectorMap
 
 from dotenv import load_dotenv
 
-
 logger = getLogger(__name__)
 
-CUSTOM:bool = True
-#---
-# custom JS code
-#---
-orig_js_code_path:str = str(files('browser_use.dom').joinpath('buildDomTree.js'))
-with open( orig_js_code_path, 'r', encoding='utf-8') as file:
-    js_code = file.read()
-if CUSTOM:
-    before = '''return buildDomTree(document.body);'''
-    after = '''return JSON.stringify(buildDomTree(document.body));'''
-    if before in js_code:
-        js_code = js_code.replace(before,after)
-    else:
-        raise ValueError("Custom JS code not found in buildDomTree.js")                
+def text_diff(text1: str, text2: str) -> str:
+    lines1 = text1.splitlines()
+    lines2 = text2.splitlines()
+    if len(lines1) != len(lines2):
+        return f"Line count mismatch: {len(lines1)} vs {len(lines2)}"
+    marks = [False] * len(lines1)
+    width = 0
+    for i, (line1, line2) in enumerate(zip(lines1, lines2)):
+        if line1 != line2:
+            for j in range(max(0, i-3), min(len(lines1), i+3)):
+                width = max(width, len(lines1[j]))
+                width = max(width, len(lines2[j]))
+                marks[j] = True
+    diff_lines = []
+    for i, (line1, line2) in enumerate(zip(lines1, lines2)):
+        if marks[i]:
+            x = "|   |" if line1==line2 else "| ! |"
+            diff_lines.append(f"{i}: {line1:<{width}} {x} {line2}")
+    return '\n'.join(diff_lines)
 
 def create_llm() ->BaseChatModel:
     load_dotenv('config.env')
@@ -49,34 +56,70 @@ def create_llm() ->BaseChatModel:
     return llm
 
 class CustomDomService(DomService):
+    def __init__(self, page: 'Page', custom:bool = False):
+        super().__init__(page)
+        # customized JS code
+        self.js_code2 = re.sub(
+            r'(return) (debugMode \?\s*{ rootId, map: DOM_HASH_MAP, perfMetrics: PERF_METRICS } :\s*{ rootId, map: DOM_HASH_MAP })',
+            r'\1 JSON.stringify( \2 )',
+            self.js_code
+        )
+        if self.js_code == self.js_code2:
+            raise ValueError('Failed to modify the JS code')
+        print( text_diff(self.js_code, self.js_code2) )
+        self.custom:bool = custom
 
-    async def _build_dom_tree(self, highlight_elements: bool, focus_element: int, viewport_expansion: int) -> DOMElementNode:
-		# js_code = resources.read_text('browser_use.dom', 'buildDomTree.js')
+    # Override
+    async def _build_dom_tree(
+        self,
+        highlight_elements: bool,
+        focus_element: int,
+        viewport_expansion: int,
+    ) -> tuple[DOMElementNode, SelectorMap]:
+        if await self.page.evaluate('1+1') != 2:
+            raise ValueError('The page cannot evaluate javascript code properly')
 
+        # NOTE: We execute JS code in the browser to extract important DOM information.
+        #       The returned hash map contains information about the DOM tree and the
+        #       relationship between the DOM elements.
+        debug_mode = logger.getEffectiveLevel() == logging.DEBUG
         args = {
             'doHighlightElements': highlight_elements,
             'focusHighlightIndex': focus_element,
             'viewportExpansion': viewport_expansion,
+            'debugMode': debug_mode,
         }
+
         t0 = time.time()
-        if CUSTOM:
-            json_str:str = await self.page.evaluate(js_code, args)  # This is quite big, so be careful
-            eval_page = json.loads(json_str)
+        if self.custom:
+            method='custom'
+            try:
+                json_str = await self.page.evaluate(self.js_code2, args)
+                eval_page = json.loads(json_str)
+            except Exception as e:
+                logger.error('Error evaluating JavaScript: %s', e)
+                raise
         else:
-            eval_page = await self.page.evaluate(js_code, args)
+            method='original'
+            try:
+                eval_page = await self.page.evaluate(self.js_code, args)
+            except Exception as e:
+                logger.error('Error evaluating JavaScript: %s', e)
+                raise
         t9 = time.time()
-        logger.info(f"buildDomTree.js time: {t9-t0:.3f}(Sec)")
-        html_to_dict = self._parse_node(eval_page)
+        logger.info(f"buildDomTree.js time: {method} {t9-t0:.3f}(Sec)")
 
-        if html_to_dict is None or not isinstance(html_to_dict, DOMElementNode):
-            raise ValueError('Failed to parse HTML to dictionary')
+        # Only log performance metrics in debug mode
+        if debug_mode and 'perfMetrics' in eval_page:
+            logger.debug('DOM Tree Building Performance Metrics:\n%s', json.dumps(eval_page['perfMetrics'], indent=2))
 
-        return html_to_dict
+        return await self._construct_dom_tree(eval_page)
 
 class CustomBrowserContext(BrowserContext):
 
-    def __init__(self, browser: 'Browser', config: BrowserContextConfig = BrowserContextConfig(), ):
+    def __init__(self, browser: 'Browser', config: BrowserContextConfig = BrowserContextConfig(), custom:bool = False):
         super().__init__(browser,config)
+        self.custom:bool = custom
 
     async def _update_state(self, focus_element: int = -1) -> BrowserState:
         """Update and return state."""
@@ -92,15 +135,15 @@ class CustomBrowserContext(BrowserContext):
             # Get all available pages
             pages = session.context.pages
             if pages:
-                session.current_page = pages[-1]
-                page = session.current_page
+                self.state.target_id = None
+                page = await self._get_current_page(session)
                 logger.debug(f'Switched to page: {await page.title()}')
             else:
                 raise BrowserError('Browser closed: no valid pages available')
 
         try:
             await self.remove_highlights()
-            dom_service = CustomDomService(page)
+            dom_service = CustomDomService(page,self.custom)
             content = await dom_service.get_clickable_elements(
                 focus_element=focus_element,
                 viewport_expansion=self.config.viewport_expansion,
@@ -132,7 +175,8 @@ class CustomBrowserContext(BrowserContext):
 async def main():
 
     browser = Browser()
-    browser_context = CustomBrowserContext(browser)
+    custom = True
+    browser_context = CustomBrowserContext(browser, custom=custom)
 
     agent = Agent(
         task="Go to Reddit, search for 'browser-use', click on the first post and return the first comment.",
