@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 	from browser_use.browser.views import BrowserState
 
 from browser_use.agent.prompts import SystemPrompt, AgentMessagePrompt
-from buweb.Research.agent.custom_views import CustomAgentStepInfo
+from buweb.Research.agent.custom_views import CustomAgentStepInfo, CustomAgentOutput, create_current_state_format
 
 class CustomSystemPrompt(SystemPrompt):
 	def __init__(self, action_description: str, max_actions_per_step: int = 10):
@@ -32,7 +32,8 @@ class CustomSystemPrompt(SystemPrompt):
 		Returns:
 		    SystemMessage: Formatted system prompt
 		"""
-		prompt = self.prompt_template.format(max_actions=self.max_actions_per_step)
+		current_state_fmt = create_current_state_format(CustomAgentOutput)
+		prompt = self.prompt_template.format(max_actions=self.max_actions_per_step,current_state_format=current_state_fmt)
 		return SystemMessage(content=prompt)
 
 
