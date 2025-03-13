@@ -55,7 +55,9 @@ class CustomAgentStepInfo(AgentStepInfo):
     task: str = field(metadata={ "prompt":"Task", "description": "user\'s instructions you need to complete."})
     add_infos: str = field(metadata={ "prompt":"Hints(Optional)", "description": "Some hints to help you complete the user\'s instructions."})
     memory: str = field(metadata={ "prompt":"Memory", "description": "Important contents are recorded during historical operations for use in subsequent operations."})
-    task_progress: str = field(metadata={ "prompt":"Task Progress", "description": "Up to the current page, the content you have completed can be understood as the progress of the task."})
+    task_progress: str # = field(metadata={ "prompt":"Task Progress", "description": "Up to the current page, the content you have completed can be understood as the progress of the task."})
+    future_plans: str
+    
     def is_last_step(self) -> bool:
         """Check if this is the last step"""
         return self.step_number >= self.max_steps - 1
@@ -63,9 +65,10 @@ class CustomAgentStepInfo(AgentStepInfo):
 class CustomAgentBrain(BaseModel):
     """Current state of the agent"""
     prev_action_evaluation: str = Field(...,description="Success|Failed|Unknown - Analyze the current elements and the image to check if the previous goals/actions are successful like intended by the task. Ignore the action result. The website is the ground truth. Also mention if something unexpected happened like new suggestions in an input field. Shortly state why/why not. Note that the result you output must be consistent with the reasoning you output afterwards. If you consider it to be 'Failed,' you should reflect on this during your thought.")
-    important_contents: str = Field(...,description="Output important contents closely related to user\'s instruction or task on the current page. If there is, please output the contents. If not, please output empty string ''.")
-    completed_contents: str = Field(...,description="Update the input Task Progress. Completed contents is a general summary of the current contents that have been completed. Just summarize the contents that have been actually completed based on the current page and the history operations. Please list each completed item individually, such as: 1. Input username. 2. Input Password. 3. Click confirm button")
-    thought: str = Field(...,description="Think about the requirements that have been completed in previous operations and the requirements that need to be completed in the next one operation. If the output of prev_action_evaluation is 'Failed', please reflect and output your reflection here. If you think you have entered the wrong page, consider to go back to the previous page in next action.")
+    important_contents: str = Field(...,description="Output important contents closely related to user\'s instruction on the current page. If there is, please output the contents. If not, please output empty string ''.")
+    task_progress: str = Field(...,description="Task Progress is a general summary of the current contents that have been completed. Just summarize the contents that have been actually completed based on the content at current step and the history operations. Please list each completed item individually, such as: 1. Input username. 2. Input Password. 3. Click confirm button. Please return string type not a list.")
+    future_plans: str = Field(...,description="Based on the user's request and the current state, outline the remaining steps needed to complete the task. This should be a concise list of actions yet to be performed, such as: 1. Select a date. 2. Choose a specific time slot. 3. Confirm booking. Please return string type not a list.")
+    thought: str = Field(...,description="Think about the requirements that have been completed in previous operations and the requirements that need to be completed in the next one operation. If your output of prev_action_evaluation is 'Failed', please reflect and output your reflection here.")
     summary: str = Field(...,description="Please generate a brief natural language description for the operation in next actions based on your Thought.")
 
     # log_responseを動かすために、以下のプロパティが必要

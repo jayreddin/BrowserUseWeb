@@ -66,7 +66,8 @@ def main4():
         task="click",
         add_infos="button",
         memory="submit",
-        task_progress="ボタンをクリックして送信する"
+        task_progress="ボタンをクリックして送信する",
+        future_plans="次のページを待つ",
     )
     state:CustomBrowserState = CustomBrowserState(
         url="https://www.google.com",

@@ -87,18 +87,6 @@ class BwTask:
         else:
             logger.info( f"##logPrint {msg}")
 
-    async def start_global_task(self,global_task:str):
-        if self._writer is not None:
-            await self._writer.start_global_task(global_task)
-        else:
-            logger.info(f"##logPrint START\n-------------------------------------\n実行開始\n-------------------------------------")
-
-    async def done_global_task(self):
-        if self._writer is not None:
-            await self._writer.done_global_task()
-        else:
-            logger.info( f"##logPrint DONE")
-
     def logPrintX(self, *, header:str="", msg:str="", progress:str|None=None):
         if self._writer is not None:
             self._writer.print( header=header,msg=msg,progress=progress)

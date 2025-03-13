@@ -190,22 +190,22 @@ class CustomAgent(Agent):
 
         logger.info(f'{emoji} Eval: {response.current_state.prev_action_evaluation}')
         logger.info(f'🧠 New Memory: {response.current_state.important_contents}')
-        logger.info(f'⏳ Task Progress: {response.current_state.completed_contents}')
+        logger.info(f'⏳ Task Progress: {response.current_state.task_progress}')
         logger.info(f'🤔 Thought: {response.current_state.thought}')
         logger.info(f'🎯 Summary: {response.current_state.summary}')
         for i, action in enumerate(response.action):
             logger.info(
                 f'🛠️  Action {i + 1}/{len(response.action)}: {action.model_dump_json(exclude_unset=True)}'
             )
-        self.print(f'{emoji} Eval: {response.current_state.prev_action_evaluation}')
-        self.print(f'🧠 New Memory: {response.current_state.important_contents}')
-        self.print(f'⏳ Task Progress: {response.current_state.completed_contents}')
-        self.print(f'🤔 Thought: {response.current_state.thought}')
+        # self.print(f'{emoji} Eval: {response.current_state.prev_action_evaluation}')
+        # self.print(f'🧠 New Memory: {response.current_state.important_contents}')
+        self.print(f'⏳ Task Progress: {response.current_state.task_progress}')
+        # self.print(f'🤔 Thought: {response.current_state.thought}')
         self.print(f'🎯 Summary: {response.current_state.summary}')
-        for i, action in enumerate(response.action):
-            self.print(
-                f'🛠️  Action {i + 1}/{len(response.action)}: {action.model_dump_json(exclude_unset=True)}'
-            )
+        # for i, action in enumerate(response.action):
+        #     self.print(
+        #         f'🛠️  Action {i + 1}/{len(response.action)}: {action.model_dump_json(exclude_unset=True)}'
+        #     )
 
     def _make_history_item(
         self,
@@ -246,9 +246,12 @@ class CustomAgent(Agent):
         ):
             step_info.memory += important_contents + "\n"
 
-        completed_contents = model_output.current_state.completed_contents
+        completed_contents = model_output.current_state.task_progress
         if completed_contents and "None" not in completed_contents:
             step_info.task_progress = completed_contents
+        future_plans = model_output.current_state.future_plans
+        if future_plans and "None" not in future_plans:
+            step_info.future_plans = future_plans
     
     async def step(self, step_info: AgentStepInfo ) ->None:
         if self.custom_step_info is None:
@@ -259,20 +262,25 @@ class CustomAgent(Agent):
                 add_infos=self.add_infos,
                 memory="",
                 task_progress="",
+                future_plans="",
             )
         self.custom_step_info.step_number = step_info.step_number
         self.custom_step_info.max_steps = step_info.max_steps
         await super().step(self.custom_step_info)
 
-    @time_execution_async("--get_next_action")
     async def get_next_action(self, input_messages: list[BaseMessage]) -> AgentOutput:
+        if self._writer:
+            await self._writer.start_get_next_action(self.state.n_steps)
         parsed = await super().get_next_action(input_messages)
         self._log_response(parsed)
         if self.custom_step_info is not None:
             self.update_step_info(parsed, self.custom_step_info)
         return parsed
 
-    async def run(self, max_steps: int = 100) -> AgentHistoryList:
+    async def run(self, max_steps: int = 100, wr:BuwWriter|None=None) -> AgentHistoryList:
+        self._writer = wr
+        if self._writer is not None:
+            self.register_new_step_callback = self._writer.done_get_next_action
         self.custom_step_info = None
         try:
             return await super().run(max_steps)
@@ -285,6 +293,12 @@ class CustomAgent(Agent):
         except Exception as e:
             print("".join(traceback.format_exception(type(e), e, e.__traceback__)))
             raise e
+
+    async def action(self,action:ActionModel|ActionResult):
+        if isinstance(action,ActionModel):
+            await self.start_action(action)
+        elif isinstance(action,ActionResult):
+            await self.done_action(action)
 
     async def _handle_step_error(self, error: Exception) -> list[ActionResult]:
         print("".join(traceback.format_exception(type(error), error, error.__traceback__)))

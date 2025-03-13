@@ -156,7 +156,6 @@ class BuwWriter:
         self._agent_task = ""
         self._n_steps = 0
         self._n_actions = 0
-        self._n_agents = 0
         self.print(progress="")
 
     async def done_global_task(self,progress:str=""):
@@ -165,7 +164,6 @@ class BuwWriter:
         self._n_agents = 0
         self._n_steps = 0
         self._n_actions = 0
-        self._n_agents = 0
         self.print(progress=progress)
 
     async def external_agent_status_raise_error_callback(self) ->bool:
