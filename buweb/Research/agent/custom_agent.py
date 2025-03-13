@@ -251,31 +251,33 @@ class CustomAgent(Agent):
             step_info.task_progress = completed_contents
     
     async def step(self, step_info: AgentStepInfo ) ->None:
-        if self.x_step_info is None:
-            self.x_step_info = CustomAgentStepInfo(
-                task=self.task,
-                add_infos=self.add_infos,
+        if self.custom_step_info is None:
+            self.custom_step_info = CustomAgentStepInfo(
                 step_number=1,
                 max_steps=step_info.max_steps,
+                task=self.task,
+                add_infos=self.add_infos,
                 memory="",
                 task_progress="",
             )
-        await super().step(self.x_step_info)
+        self.custom_step_info.step_number = step_info.step_number
+        self.custom_step_info.max_steps = step_info.max_steps
+        await super().step(self.custom_step_info)
 
     @time_execution_async("--get_next_action")
     async def get_next_action(self, input_messages: list[BaseMessage]) -> AgentOutput:
         parsed = await super().get_next_action(input_messages)
         self._log_response(parsed)
-        if self.x_step_info is not None:
-            self.update_step_info(parsed, self.x_step_info)
+        if self.custom_step_info is not None:
+            self.update_step_info(parsed, self.custom_step_info)
         return parsed
 
     async def run(self, max_steps: int = 100) -> AgentHistoryList:
-        self.x_step_info = None
+        self.custom_step_info = None
         try:
             return await super().run(max_steps)
         finally:
-            self.x_step_info = None
+            self.custom_step_info = None
 
     async def multi_act( self, actions: list[ActionModel], check_for_new_elements: bool = True ) -> list[ActionResult]:
         try:

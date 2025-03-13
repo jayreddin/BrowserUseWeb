@@ -8,6 +8,7 @@ from browser_use.controller.registry.views import ActionModel
 from pydantic import BaseModel, ConfigDict, Field, create_model
 from browser_use.dom.views import DOMState, DOMElementNode, SelectorMap
 
+# BrowserStateの内容に変更はないけれど、プロンプトのためにfieldを設定する
 @dataclass
 class CustomBrowserState(DOMState):
 
@@ -46,8 +47,9 @@ class CustomBrowserState(DOMState):
             "- elements without [] provide only context",
         )})
 
+# StepInfoの内容にプロパティを追加する
 @dataclass
-class CustomAgentStepInfo:
+class CustomAgentStepInfo(AgentStepInfo):
     step_number: int
     max_steps: int
     task: str = field(metadata={ "prompt":"Task", "description": "user\'s instructions you need to complete."})
@@ -108,7 +110,7 @@ class CustomAgentOutput(AgentOutput):
             ),
             __module__=CustomAgentOutput.__module__,
         )
-        model_.__doc__ = 'CustomAgentOutput model with custom actions'
+        model_.__doc__ = 'AgentOutput model with custom actions'
         return model_
 
 def _scan_field_names( data_class:Type, name_list:list[str]=[]):
