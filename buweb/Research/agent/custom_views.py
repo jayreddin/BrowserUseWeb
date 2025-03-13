@@ -94,7 +94,7 @@ class CustomAgentOutput(AgentOutput):
     current_state: CustomAgentBrain
     action: list[ActionModel] = Field(
         ...,
-        description='List of actions to execute',
+        description='List of actions to execute. remind! you must write action to execute.',
         json_schema_extra={'min_items': 1},  # Ensure at least one action is provided
     )
 
@@ -106,7 +106,7 @@ class CustomAgentOutput(AgentOutput):
             __base__=CustomAgentOutput,
             action=(
                 list[custom_actions],
-                Field(..., description='List of actions to execute', json_schema_extra={'min_items': 1}),
+                Field(..., description='List of actions to execute. remind! you must write action to execute.', json_schema_extra={'min_items': 1}),
             ),
             __module__=CustomAgentOutput.__module__,
         )

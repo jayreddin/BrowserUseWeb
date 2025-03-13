@@ -76,26 +76,26 @@ async def deep_research(task:str, llm:BaseChatModel, agent_state=None,
 
     controller = CustomController()
 
-    @controller.registry.action(
-        'Extract page content to get the pure markdown.',
-    )
-    async def extract_content(browser: BrowserContext):
-        page = await browser.get_current_page()
-        # use jina reader
-        url = page.url
+    # @controller.registry.action(
+    #     'Extract page content to get the pure markdown.',
+    # )
+    # async def extract_content(browser: BrowserContext):
+    #     page = await browser.get_current_page()
+    #     # use jina reader
+    #     url = page.url
 
-        jina_url = f"https://r.jina.ai/{url}"
-        await page.goto(jina_url)
-        output_format = 'markdown'
-        content = MainContentExtractor.extract(  # type: ignore
-            html=await page.content(),
-            output_format=output_format,
-        )
-        # go back to org url
-        await page.go_back()
-        msg = f'Extracted page content:\n {content}\n'
-        log_info(msg)
-        return ActionResult(extracted_content=msg)
+    #     jina_url = f"https://r.jina.ai/{url}"
+    #     await page.goto(jina_url)
+    #     output_format = 'markdown'
+    #     content = MainContentExtractor.extract(  # type: ignore
+    #         html=await page.content(),
+    #         output_format=output_format,
+    #     )
+    #     # go back to org url
+    #     await page.go_back()
+    #     msg = f'Extracted page content:\n {content}\n'
+    #     log_info(msg)
+    #     return ActionResult(extracted_content=msg)
 
     search_system_prompt = f"""
     You are a **Deep Researcher**, an AI agent specializing in in-depth information gathering and research using a web browser with **automated execution capabilities**. Your expertise lies in formulating comprehensive research plans and executing them meticulously to fulfill complex user requests. You will analyze user instructions, devise a detailed research plan, and determine the necessary search queries to gather the required information.
