@@ -53,6 +53,13 @@ async def deep_research(task:str, llm:BaseChatModel, agent_state=None,
         else:
             logger.info(msg)
 
+    def logTrans(title,msg):
+        if writer is not None:
+            txt = writer.trans(msg)
+            writer.print(msg=f"{title} {txt}")
+        else:
+            logger.info(f"{title}: {msg}")
+
     def log_error(msg):
         if writer:
             writer.print(msg=msg)
@@ -62,7 +69,7 @@ async def deep_research(task:str, llm:BaseChatModel, agent_state=None,
     task_id = 'testrun' # str(uuid4())
     save_dir = kwargs.get("save_dir", os.path.join(f"./tmp/deep_research/{task_id}"))
     history_gif:str = os.path.join(save_dir, "agent_history.gif")
-    log_info(f"Save Deep Research at: {save_dir}")
+    logger.info(f"Save Deep Research at: {save_dir}")
     #if os.path.exists(save_dir):
     #    rmtree(save_dir,ignore_errors=True)
     os.makedirs(save_dir, exist_ok=True)
@@ -194,7 +201,7 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
         while search_iteration < max_search_iterations:
             search_iteration += 1
             ititle = f"Ite:{search_iteration:02d}"
-            log_info(f"{ititle} Start Search...")
+            #log_info(f"{ititle} Start Search...")
             history_query_ = json.dumps(history_query, indent=4)
             history_infos_ = json.dumps(history_infos, indent=4)
             query_prompt = f"This is search {search_iteration} of {max_search_iterations} maximum searches allowed.\n User Instruction:{task} \n Previous Queries:\n {history_query_} \n Previous Search Results:\n {history_infos_}\n"
@@ -202,23 +209,20 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
             ai_query_msg = llm.invoke(search_messages[:1] + search_messages[1:][-1:])
             search_messages.append(ai_query_msg)
             if hasattr(ai_query_msg, "reasoning_content"):
-                log_info(f"{ititle} 🤯 Start Search Deep Thinking: ")
-                log_info(ai_query_msg.reasoning_content) # type: ignore
-                log_info(f"{ititle} 🤯 End Search Deep Thinking")
+                logTrans(f"{ititle} Reasoning",ai_query_msg.reasoning_content) # type:ignore
             ai_query_contents:str = ai_query_msg.content.replace("```json", "").replace("```", "")
             ai_query_contenta = repair_json(ai_query_contents)
             ai_query_content = json.loads(ai_query_contenta) # type: ignore
             query_plan = ai_query_content["plan"]
-            log_info(f"{ititle} Current Iteration Planing:")
-            log_info(query_plan)
+            logTrans(f"{ititle} Plan",query_plan)
             query_tasks = ai_query_content["queries"]
             if not query_tasks:
                 break
             else:
                 query_tasks = query_tasks[:max_query_num]
                 history_query.extend(query_tasks)
-                log_info(f"{ititle} Query tasks:")
-                log_info(query_tasks)
+                aa = '\n'.join( [ f"{i+1}. {query}" for i,query in enumerate(query_tasks) ] )
+                log_info(f"{ititle} Query tasks:\n{aa}")
 
             # 2. Perform Web Search and Auto exec
             # Parallel BU agents
@@ -252,7 +256,6 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
                 try:
                     if writer:
                         await writer.start_agent(agent.task)
-                    log_info(f"{title} Search...")
                     res = await agent.run(max_steps=kwargs.get("max_steps", 10), wr=writer)
                     if 'stop' in inter:
                         raise Exception("Stop Deep Research")
@@ -262,7 +265,7 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
                         log_info(f"{title} no final result")
                         continue
                     querr_save_path = os.path.join(query_result_dir, f"{search_iteration}-{i}.md")
-                    log_info(f"{title} save query: {query_tasks[i]} at {querr_save_path}")
+                    logger.info(f"{title} save query: {query_tasks[i]} at {querr_save_path}")
                     with open(querr_save_path, "w", encoding="utf-8") as fw:
                         fw.write(f"Query: {query_tasks[i]}\n")
                         fw.write(query_result)
@@ -281,9 +284,7 @@ Provide your output as a JSON formatted list. Each item in the list must adhere 
                         ai_record_msg = llm.invoke(record_messages[:1] + record_messages[-1:])
                         record_messages.append(ai_record_msg)
                         if hasattr(ai_record_msg, "reasoning_content"):
-                            log_info(f"{title} 🤯 Start Record Deep Thinking: ")
-                            log_info(ai_record_msg.reasoning_content)
-                            log_info(f"{title} 🤯 End Record Deep Thinking")
+                            logTrans("Reason",ai_record_msg.reasoning_content) # type: ignore
                         record_content = ai_record_msg.content
                         record_content = repair_json(record_content)
                         new_record_infos = json.loads(record_content)  # type: ignore

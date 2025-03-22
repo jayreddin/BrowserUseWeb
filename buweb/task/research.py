@@ -94,6 +94,13 @@ class BwResearchTask:
         else:
             logger.info(msg)
 
+    def logTrans(self,title,msg):
+        if self._writer is not None:
+            txt = self._writer.trans(msg)
+            self._writer.print(msg=f"{title} {txt}")
+        else:
+            logger.info(f"{title}: {msg}")
+
     async def start(self,task:str):
 
         now = datetime.now()
@@ -101,13 +108,11 @@ class BwResearchTask:
 
         x_extractor = LLM.get_lite_model(self._operator_llm)
         x_planner:str = self._plan_llm._full_name if self._plan_llm is not None else "None"
-        self.logPrint("")
-        self.logPrint("-------------------------------------")
-        self.logPrint(f"実行開始: {now_datetime}")
-        self.logPrint("-------------------------------------")
+        if self._plan_llm:
+            self.logPrint(f"planner:{x_planner}")
         self.logPrint(f"operator:{self._operator_llm._full_name}")
-        self.logPrint(f"extractor:{x_extractor._full_name}")
-        self.logPrint(f"planner:{x_planner}")
+        if x_extractor:
+            self.logPrint(f"extractor:{x_extractor._full_name}")
         llm_cache:BaseCache = self._llm_cache
         operator_llm:BaseChatModel = create_model(self._operator_llm, cache=llm_cache)
         test_res = await operator_llm.ainvoke("動作テストです。正常稼働ならYesを返信して。")
@@ -127,7 +132,7 @@ class BwResearchTask:
             pre_result:BaseMessage = await planner_llm.ainvoke( "\n".join(pre_prompt))
             if isinstance(pre_result.content,str):
                 plan_text = pre_result.content
-                self.logPrint(plan_text)
+                self.logTrans("Plan",plan_text)
 
         web_task = f"# 現在時刻: {now_datetime}\n\n# 与えられたタスク:\n{task}"
         if plan_text is not None:

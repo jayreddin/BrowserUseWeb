@@ -170,6 +170,13 @@ class CustomAgent(Agent):
         else:
             self._writer.print(msg=msg)
 
+    def logTrans(self,title,msg):
+        if self._writer is not None:
+            txt = self._writer.trans(msg)
+            self._writer.print(msg=f"{title} {txt}")
+        else:
+            logger.info(f"{title}: {msg}")
+
     def _setup_action_models(self) -> None:
         """Setup dynamic action models from controller's registry"""
         self.ActionModel = self.controller.registry.create_action_model()
@@ -198,14 +205,11 @@ class CustomAgent(Agent):
                 f'🛠️  Action {i + 1}/{len(response.action)}: {action.model_dump_json(exclude_unset=True)}'
             )
         # self.print(f'{emoji} Eval: {response.current_state.prev_action_evaluation}')
-        # self.print(f'🧠 New Memory: {response.current_state.important_contents}')
-        self.print(f'⏳ Task Progress: {response.current_state.task_progress}')
-        # self.print(f'🤔 Thought: {response.current_state.thought}')
-        self.print(f'🎯 Summary: {response.current_state.summary}')
-        # for i, action in enumerate(response.action):
-        #     self.print(
-        #         f'🛠️  Action {i + 1}/{len(response.action)}: {action.model_dump_json(exclude_unset=True)}'
-        #     )
+        # self.print(f'New Memory: {response.current_state.important_contents}')
+        self.print(f'Task Progress: {response.current_state.task_progress}')
+        # self.print(f'Thought: {response.current_state.thought}')
+        self.print(f'Summary: {response.current_state.summary}')
+
 
     def _make_history_item(
         self,
