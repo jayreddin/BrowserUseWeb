@@ -58,17 +58,25 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-4. 実行権限の付与：
+4. playwriteのセットアップ
+
+playwriteでブラウザをインストールしてください。
+
+```
+playwright install chromium
+```
+
+6. 実行権限の付与：
 ```bash
 chmod +x app.py
 ```
 
-5. 環境変数にAPIキーを設定：
+7. 環境変数にAPIキーを設定：
 ```bash
 export OPENAI_API_KEY="your-api-key"
 ```
 
-6. ファイアウォール設定
+8. ファイアウォール設定
 - Ubuntu 24.04
 ```bash
 ufw allow 5000/tcp # flaskサーバ用
@@ -81,9 +89,7 @@ firewall-cmd --add-port=5000/tcp # flaskサーバ用
 firewall-cmd --add-port=5030:5099/tcp # websock用
 ```
 
-7.
-
-ubuntu 24.04の場合、以下の設定が必要
+9. ubuntu 24.04の場合、以下の設定が必要
 
 ```bash
 sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0
@@ -108,6 +114,12 @@ http://localhost:5000
    - 実行状況は左下のログ出力エリアに表示
    - 「タスクキャンセル」ボタンで処理を停止
 
+4. ブラウザが起動しない時
+
+以下のシェルスクリプトを修正すると動くかもしれません。
+- buweb/scripts/start_browser.sh
+- buweb/scripts/start_vnc.sh
+
 ## システム構成
 
 - `app.py`: Flaskアプリケーションのメインファイル
@@ -127,7 +139,12 @@ http://localhost:5000
   - リアルタイムステータス表示
   - WebSocket/SSE通信
   - noVNCによるブラウザベースのVNCクライアント
-
+- `buweb/scripts/start_vnc.sh`: VNCサーバ起動スクリプト
+  - Xvncの環境設定と起動停止
+- `buweb/scripts/start_browser.sh`: ブラウザ起動スクリプト
+  - bwrapによる環境分離
+  - ブラウザの起動と停止
+  
 ## 技術仕様
 
 - **バックエンド**
@@ -145,23 +162,6 @@ http://localhost:5000
 - **ブラウザ制御**
   - Chrome DevTools Protocol
 
-## カスタマイズ
-
-browser-useのブラウザ操作がとても遅いので、ボトルネックポイントを探していたら、buldDomTree.jsの実行が遅いことに気づきました。
-例えば、アマゾンのトップページにおいて、私の環境で5から6秒程度の処理時間が必要でした。
-この部分を高速化できないかと試したら、結局のところbuildDomTreeの処理そのものは1秒以下で完了していて、その結果をpythonへ返信する処理で数秒を要するみたいです。
-したがって、buildDomTree.jsの最後を以下のように修正し、
-```javascript
-return JSON.stringify(buildDomTree(document.body));
-```
-DomServiceの_build_dom_tree関数の一部を以下のように修正しました。
-```python
-eval_page = json.loads(await self.page.evaluate(js_code, args))
-```
-この修正で、_build_dom_tree関数の処理時間は、数分の１から数十分の１になります。
-
-ただし、この修正がすべての環境に有効かどうかわかりません。すくなくとも私の環境では絶大な効果を得ました。
-
 ## ライセンス
 
 このプロジェクトはMIT Licenseの下で提供されています。詳細は[LICENSE](LICENSE)ファイルを参照してください。
@@ -170,3 +170,5 @@ eval_page = json.loads(await self.page.evaluate(js_code, args))
 https://github.com/browser-use
 https://github.com/novnc
 
+
+selinuxuser_execmod' boolean
