@@ -5,7 +5,7 @@ ScrName=$(basename $0)
 echo "$ScrDir/$ScrName $*"
 
 display_num="10"
-workdir="/home/maeda/tmp"
+workdir="$HOME/tmp"
 hosts=""
 cdpport=""
 wsport=""
@@ -114,6 +114,7 @@ fi
 
 BWRAP_OPT="--bind / / --dev /dev --bind /tmp /tmp"
 if [ -n "$workdir" ]; then
+    mkdir -p "$workdir"
     BWRAP_OPT="$BWRAP_OPT --bind $workdir $HOME --chdir $HOME"
 fi
 if [ -n "$hosts" ]; then

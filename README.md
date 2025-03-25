@@ -1,12 +1,15 @@
+<div align="right">日本語/<a href="README_en.md">English</a></div>
+
 # BrowserUseWeb
 
-Browser-useをFlaskベースのWebアプリケーション化しました。
+Browser-useをQuartベースのWebアプリケーション化しました。
 自然言語でのブラウザ操作を行うサンプル実装です。
 
-https://github.com/browser-use
+[Browser-use:https://github.com/browser-use](https://github.com/browser-use)
 
 また、ブラウザ画面の転送にnoVNCを同梱しています。
-https://github.com/novnc
+
+[noVNC:https://github.com/novnc](https://github.com/novnc)
 
 ## セキュリティ注意事項
 
@@ -16,113 +19,141 @@ https://github.com/novnc
 ## 主な機能
 
 - Browser-useによるタスク実行
-  - 自然言語によるタスク指示をもとにLLMがブラウザを自動操作
+  自然言語によるタスク指示をもとにLLMがブラウザを自動操作
 
 - Webインターフェース
-  - Browser-useとブラウザをサーバで実行するので、ユーザ(クライアント)での環境構築が不要
+  Browser-useとブラウザをサーバで実行するので、ユーザ(クライアント)での環境構築が不要
 
 - マルチユーザ対応
-  - 最大１０ユーザ(セッション)まで同時利用可能
+  最大１０ユーザ(セッション)まで同時利用可能
 
 ## 前提条件
 
 OS側に、以下のパッケージが必要です：
 
 - Ubuntu 24.04
-  - tigervnc-standalone-server
-  - websockify
-  - google-chrome
+  tigervnc-standalone-server
+  websockify
+  google-chrome
 
 - RHEL9(Rocky9,Alma9,...)
-  - tigervnc-server
-  - python3-websockify
-  - google-chrome
+  tigervnc-server
+  python3-websockify
+  google-chrome
 
 ## セットアップ
 
 1. リポジトリクローン
-```bash
-git clone https://github.com/route250/BrowserUseWeb.git
-cd BrowserUseWeb
-```
+
+  ```bash
+  git clone https://github.com/route250/BrowserUseWeb.git
+  cd BrowserUseWeb
+  ```
 
 2. python仮想環境
-```bash
-python3.12 -m venv .venv --prompt 'Browser'
-source .venv/bin/activate
-.venv/bin/python -m pip install -U pip setuptools
+
+  ```bash
+  python3.12 -m venv .venv --prompt 'Browser'
+  source .venv/bin/activate
+  .venv/bin/python -m pip install -U pip setuptools
 ```
 
 3. pythonパッケージをインストール
-```bash
-pip install -r requirements.txt
-```
+
+  ```bash
+  pip install -r requirements.txt
+  ```
 
 4. playwriteのセットアップ
 
-playwriteでブラウザをインストールしてください。
+  playwriteでブラウザをインストールしてください。
+  使用するブラウザによって、buweb/scripts/start_browser.shを編集して、変数CHROME_BINが適切に設定されるようにして下さい。
 
+  ```bash
+  playwright install chromium
+  ```
+
+5. 実行権限の付与：
+
+  ```bash
+  chmod +x app.py
+  chmod +x service_start.sh
+  ```
+
+6. config.env にAPIキーを設定：
+
+  ```bash:config.env
+  OPENAI_API_KEY="your-api-key"
+  GOOGLE_API_KEY="your-api-key"
+  ```
+
+7. ファイアウォール設定
+
+  - Ubuntu 24.04
+
+    ```bash
+    ufw allow 5000/tcp # quartサーバ用
+    ufw allow 5030:5099/tcp # websock用
+    ```
+
+  - RHEL9(Rocky9,Alma9,...)
+
+    ```bash
+    firewall-cmd --add-port=5000/tcp # quartサーバ用
+    firewall-cmd --add-port=5030:5099/tcp # websock用
+    ```
+
+8. セキュリティ関連
+
+  - ubuntu 24.04の場合、以下の設定が必要
+
+    ```bash
+    sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0
+    sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+    ```
+
+  - SELinuxの警告
+
+    SELinuxで警告が出て、「selinuxuser_execmod booleanがなんやかんや」と言われるが、いまのところ無視して実行している。
+
+## 起動方法
+
+1. シェルスクリプトで起動する場合:
+
+  ```bash
+  ./service_start.sh
 ```
-playwright install chromium
-```
 
-6. 実行権限の付与：
-```bash
-chmod +x app.py
-```
+2. VS Codeで実行する場合
 
-7. 環境変数にAPIキーを設定：
-```bash
-export OPENAI_API_KEY="your-api-key"
-```
+  app.pyを実行
 
-8. ファイアウォール設定
-- Ubuntu 24.04
-```bash
-ufw allow 5000/tcp # flaskサーバ用
-ufw allow 5030:5099/tcp # websock用
-```
+## 使い方
 
-- RHEL9(Rocky9,Alma9,...)
-```bash
-firewall-cmd --add-port=5000/tcp # flaskサーバ用
-firewall-cmd --add-port=5030:5099/tcp # websock用
-```
+1. Webブラウザでアクセス：
 
-9. ubuntu 24.04の場合、以下の設定が必要
+  ```text
+  http://localhost:5000
+  ```
 
-```bash
-sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0
-sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-```
+2. 操作手順：
 
-## 使用方法
-
-1. アプリケーション起動：
-```bash
-./app.py
-```
-
-2. Webブラウザでアクセス：
-```
-http://localhost:5000
-```
-
-3. 操作手順：
    - タスク入力欄に実行したい内容を日本語で入力
    - 「タスク実行」ボタンをクリックして処理を開始
    - 実行状況は左下のログ出力エリアに表示
    - 「タスクキャンセル」ボタンで処理を停止
 
-4. ブラウザが起動しない時
+## ブラウザが起動しない時
 
 以下のシェルスクリプトを修正すると動くかもしれません。
+
 - buweb/scripts/start_browser.sh
 - buweb/scripts/start_vnc.sh
 
 ## システム構成
 
-- `app.py`: Flaskアプリケーションのメインファイル
+- `service_start.sh`: 起動シェルスクリプト
+- `app.py`: Quartアプリケーションのメインファイル
   - HTTPリクエストのハンドリング
   - セッション管理
   - APIエンドポイントの提供
@@ -148,7 +179,7 @@ http://localhost:5000
 ## 技術仕様
 
 - **バックエンド**
-  - Flask: 非同期Webアプリケーションフレームワーク
+  - Quart: 非同期Webアプリケーションフレームワーク
 
 - **Web自動処理**
   - Browser-use: 自然言語によるブラウザ操作
@@ -167,8 +198,5 @@ http://localhost:5000
 このプロジェクトはMIT Licenseの下で提供されています。詳細は[LICENSE](LICENSE)ファイルを参照してください。
 
 また、browser-useのライセンス、noVNCのライセンスは別途参照して下さい。
-https://github.com/browser-use
-https://github.com/novnc
-
-
-selinuxuser_execmod' boolean
+[Browser-use:https://github.com/browser-use](https://github.com/browser-use)
+[noVNC:https://github.com/novnc](https://github.com/novnc)
