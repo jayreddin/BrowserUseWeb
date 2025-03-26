@@ -69,7 +69,7 @@ async def config_api():
             max_sessions = int(max_sessions)
             session_store.configure(operator_llm, planner_llm, max_sessions)
         # 現在のLLM設定を返す
-        current_connections,current_sessions,max_sessions = session_store.get_status()
+        current_connections,current_sessions,max_sessions = await session_store.get_status()
         return jsonify({
             'status': 'success',
             'operator_llm': session_store._operator_llm.name,
@@ -97,7 +97,7 @@ def compare_dicts(d1, d2):
 async def session_stream(server_addr,client_addr) ->AsyncIterable[str]:
     ses = None
     try:
-        session_store.incr()
+        await session_store.incr()
         ses = await session_store.create(server_addr,client_addr)
         if ses is None:
             res = { 'status': 'success', 'msg': '接続数制限中' }
@@ -143,7 +143,7 @@ async def session_stream(server_addr,client_addr) ->AsyncIterable[str]:
     finally:
         if ses is not None:
             await session_store.remove(ses.session_id)
-        session_store.decr()
+        await session_store.decr()
 
 @app.route('/api/<path:api>', methods=['GET','POST'])
 async def service_api(api):

@@ -107,7 +107,7 @@ async def download_hosts_file_async(save_path: str):
         print(f"`hosts` ファイルのダウンロード中にエラーが発生しました: {e}")
 
 class BwSession:
-    def __init__(self,session_id:str, server_addr:str, client_addr:str|None, *, dir:str, hostsfile:str, Pool:ThreadPoolExecutor):
+    def __init__(self,session_id:str, server_addr:str, client_addr:str|None, *, dir:str, hostsfile:str, Pool:ThreadPoolExecutor, lock:asyncio.Lock):
         self.session_id:str = session_id
         self.server_addr:str = server_addr
         self.client_addr:str|None = client_addr
@@ -115,6 +115,7 @@ class BwSession:
         self.WorkDir:str = dir
         self.hostsfile:str = hostsfile
         self.Pool:ThreadPoolExecutor = Pool
+        self._lock:asyncio.Lock = lock
         self.geometry = "1024x900"
         self.vnc_proc:subprocess.Popen|None = None
         self.chrome_process:subprocess.Popen|None = None
@@ -240,6 +241,7 @@ class BwSession:
             self.display_num = display_num
             self.vnc_port = vnc_port
             self.ws_port = ws_port
+            await asyncio.sleep(0.5)
 
         except Exception as ex:
             await stop_proc(vnc_proc)
@@ -307,8 +309,9 @@ class BwSession:
         try:
             self.touch()
             await buw.start_global_task(prompt)
-            await self.setup_vnc_server()
-            await self.launch_chrome()
+            async with self._lock:
+                await self.setup_vnc_server()
+                await self.launch_chrome()
             if mode==1:
                 self.task = BwResearchTask( dir=self.WorkDir,
                                 llm_cache=llm_cache, llm=llm, plan_llm=planner_llm,
@@ -349,30 +352,34 @@ class BwSession:
         return self.get_status()
 
     async def stop_browser(self) ->dict:
-        try:
-            logger.info(f"[{self.session_id}] stop_browser")
-            # タスクをキャンセル
-            await self.cancel_task()
-            
-            await stop_proc( self.chrome_process )
-            self.chrome_process = None
-            self.cdp_port = 0
-            await stop_proc( self.vnc_proc )
-            self.vnc_proc = None
-            # 残存プロセスを強制終了
-            if self.display_num>0:
-                cmd = f"pkill -f 'Xvnc.*:{self.display_num}'"
-                subprocess.run(["/bin/bash", "-c", cmd], check=False)
-            if self.vnc_port>0 and self.ws_port>0:
-                cmd = f"pkill -f 'websockify.*:{self.ws_port}|:{self.vnc_port}'"
-                subprocess.run(["/bin/bash", "-c", cmd], check=False)
-                cmd = f"pkill -f 'websockify.*:{self.vnc_port}|:{self.ws_port}'"
-                subprocess.run(["/bin/bash", "-c", cmd], check=False)
-            self.display_num = 0
-            self.vnc_port = 0
-            self.ws_port = 0
-        except Exception as e:
-            logger.exception(f"[{self.session_id}] VNCサーバー停止中にエラーが発生: {str(e)}")
+        async with self._lock:
+            try:
+                logger.info(f"[{self.session_id}] stop_cancel_task")
+                # タスクをキャンセル
+                await self.cancel_task()
+                
+                logger.info(f"[{self.session_id}] stop_browser")
+                await stop_proc( self.chrome_process )
+                self.chrome_process = None
+                self.cdp_port = 0
+                logger.info(f"[{self.session_id}] stop_vnc")
+                await stop_proc( self.vnc_proc )
+                logger.info(f"[{self.session_id}] stop_kill")
+                self.vnc_proc = None
+                # 残存プロセスを強制終了
+                if self.display_num>0:
+                    cmd = f"pkill -f 'Xvnc.*:{self.display_num}'"
+                    subprocess.run(["/bin/bash", "-c", cmd], check=False)
+                if self.vnc_port>0 and self.ws_port>0:
+                    cmd = f"pkill -f 'websockify.*:{self.ws_port}|:{self.vnc_port}'"
+                    subprocess.run(["/bin/bash", "-c", cmd], check=False)
+                    cmd = f"pkill -f 'websockify.*:{self.vnc_port}|:{self.ws_port}'"
+                    subprocess.run(["/bin/bash", "-c", cmd], check=False)
+                self.display_num = 0
+                self.vnc_port = 0
+                self.ws_port = 0
+            except Exception as e:
+                logger.exception(f"[{self.session_id}] VNCサーバー停止中にエラーが発生: {str(e)}")
         return self.get_status()
 
     async def store_file(self, file_path:str, data:bytes) -> None:
@@ -394,13 +401,14 @@ class BwSession:
 # セッションデータを保存する辞書
 class SessionStore:
     def __init__(self, *, max_sessions:int=3, dir:str="tmp/sessions", Pool:ThreadPoolExecutor|None=None):
-        self._lock = Lock()
+        self._lock = asyncio.Lock()
         self._connect:int = 0
         self._max_sessions:int = max_sessions
         self.sessions: dict[str, BwSession] = {}
         self.SessionsDir:str = os.path.abspath(dir)
         self.hostsfile:str = os.path.join(self.SessionsDir,'hosts.adblock')
         self.Pool:ThreadPoolExecutor = Pool if isinstance(Pool,ThreadPoolExecutor) else ThreadPoolExecutor()
+        self._lock2:asyncio.Lock = asyncio.Lock()
         self.cleanup_interval:timedelta = timedelta(minutes=30)
         self.session_timeout:timedelta = timedelta(hours=2)
         self._last_cleanup:datetime = datetime.now()
@@ -471,15 +479,15 @@ class SessionStore:
         self._max_sessions = max_sessions
         self.setup_sessions()
 
-    def incr(self):
-        with self._lock:
+    async def incr(self):
+        async with self._lock:
             self._connect+=1
-    def decr(self):
-        with self._lock:
+    async def decr(self):
+        async with self._lock:
             self._connect-=1
 
-    def get_status(self) ->tuple[int,int,int]:
-        with self._lock:
+    async def get_status(self) ->tuple[int,int,int]:
+        async with self._lock:
             return self._connect, len(self.sessions), self._max_sessions
 
     async def get(self, session_id: str|None) -> BwSession | None:
@@ -501,7 +509,7 @@ class SessionStore:
         workdir = os.path.join( self.SessionsDir, f"session_{session_id}")
         logger.info(f"[{session_id}] create session")
         os.makedirs(workdir,exist_ok=False)
-        session = BwSession(session_id, server_addr=server_addr, client_addr=client_addr, dir=workdir, hostsfile=self.hostsfile, Pool=self.Pool)
+        session = BwSession(session_id, server_addr=server_addr, client_addr=client_addr, dir=workdir, hostsfile=self.hostsfile, Pool=self.Pool, lock=self._lock2)
         self.setup_session(session)
         self.sessions[session_id] = session
         await self._start_sweeper()
