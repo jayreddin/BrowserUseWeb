@@ -9,7 +9,7 @@
 <body>
     <div class="container">
         <div class="control-panel">
-            <textarea id="task-input" rows="5" placeholder="タスクを入力"></textarea>
+            <textarea id="task-input" rows="5" placeholder="Enter task"></textarea>
             <!-- <div class="file-upload">
                 <input type="file" id="file-input" class="file-input">
                 <label id="file-label" for="file-input">📎 ファイルを添付</label>
@@ -21,12 +21,12 @@
                 <div id="vnc-status" class="status-text">Xvnc</div>
                 <div id="ws-status" class="status-text">WS</div>
                 <div id="chrome-status" class="status-text">Chrome</div>
-                <button id="browser-btn" class="btn">起動</button>
+                <button id="browser-btn" class="btn">🔘</button>
                 <select id="mode-select" class="mode-select">
                     <option value="0">Operator</option>
                     <option value="1">Research</option>
                 </select>
-                <button id="execute-task-btn" class="btn" disabled>タスク実行</button>
+                <button id="execute-task-btn" class="btn" disabled>Submit</button>
             </div>
             <div id="log-output"></div>
         </div>
@@ -200,10 +200,10 @@
                 }
                 if( vnc_port>0 || ws_port>0 || br_port>0 ) {
                     isBrowserRunning = 1;
-                    toggleBtn.textContent = 'Kill';
+                    toggleBtn.textContent = '⛔️';
                 } else {
                     isBrowserRunning = 0;
-                    toggleBtn.textContent = 'Up';
+                    toggleBtn.textContent = '🔘';
                 }
                 toggleBtn.disabled = !session_id;
                 if( isTaskRunning != is_task ) {
@@ -245,7 +245,7 @@
         SessionKeeper.onerror = (e) => {
             console.log('keep error',e)
             SessionKeeper.close();
-            logPrint('切断されました')
+            logPrint('disconnected')
         };
 
         function stopVNC() {
@@ -269,8 +269,8 @@
                 .then(response => response.json())
                 .then(data => xx_update_status(data))
                 .catch(error => {
-                    console.error('エラー:', error);
-                    alert('エラーが発生しました');
+                    console.error('Error:', error);
+                    alert('An error has occurred.');
                 });
         });
 
@@ -298,8 +298,8 @@
             const div = document.createElement('div');
             div.className = 'sensitive-data-form';
             div.innerHTML = `
-                <input type="text" class="sensitive-key" placeholder="キー" value="${key}">
-                <input type="text" class="sensitive-value" placeholder="値" value="${value}">
+                <input type="text" class="sensitive-key" placeholder="key" value="${key}">
+                <input type="text" class="sensitive-value" placeholder="value" value="${value}">
                 <button class="remove-sensitive-btn">×</button>
                 <button class="add-sensitive-btn">+</button>
             `;
@@ -357,8 +357,8 @@
                 .then(response => response.json())
                 .then(data => xx_update_status(data))
                 .catch(error => {
-                    console.error('エラー:', error);
-                    logPrint('エラーが発生しました');
+                    console.error('Error:', error);
+                    logPrint('An error has occurred.');
                 });
         }
 
@@ -368,8 +368,8 @@
                 .then(response => response.json())
                 .then(data => xx_update_status(data))
                 .catch(error => {
-                    console.error('エラー:', error);
-                    logPrint('エラーが発生しました');
+                    console.error('Error:', error);
+                    logPrint('An error has occurred.');
                 });
         }
     </script>
