@@ -3,16 +3,6 @@ import os
 import time
 from pathlib import Path
 from typing import Dict, Optional
-import requests
-
-from langchain_anthropic import ChatAnthropic
-#from langchain_mistralai import ChatMistralAI
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_ollama import ChatOllama
-from langchain_openai import AzureChatOpenAI, ChatOpenAI
-#import gradio as gr
-
-#from .llm import DeepSeekR1ChatOpenAI, DeepSeekR1ChatOllama
 
 PROVIDER_DISPLAY_NAMES = {
     "openai": "OpenAI",
@@ -21,43 +11,6 @@ PROVIDER_DISPLAY_NAMES = {
     "deepseek": "DeepSeek",
     "google": "Google"
 }
-
-def get_llm_model(provider: str, **kwargs):
-    """
-    获取LLM 模型
-    :param provider: 模型类型
-    :param kwargs:
-    :return:
-    """
-    if provider not in ["ollama"]:
-        env_var = f"{provider.upper()}_API_KEY"
-        api_key = kwargs.get("api_key", "") or os.getenv(env_var, "")
-        if not api_key:
-            handle_api_key_error(provider, env_var)
-        kwargs["api_key"] = api_key
-
-    if provider == "openai":
-        if not kwargs.get("base_url", ""):
-            base_url = os.getenv("OPENAI_ENDPOINT", "https://api.openai.com/v1")
-        else:
-            base_url = kwargs.get("base_url")
-
-        return ChatOpenAI(
-            model=kwargs.get("model_name", "gpt-4o"),
-            temperature=kwargs.get("temperature", 0.0),
-            base_url=base_url,
-            api_key=api_key,
-        )
-
-    elif provider == "google":
-        return ChatGoogleGenerativeAI(
-            model=kwargs.get("model_name", "gemini-2.0-flash-exp"),
-            temperature=kwargs.get("temperature", 0.0),
-            google_api_key=api_key,
-        )
-
-    else:
-        raise ValueError(f"Unsupported provider: {provider}")
     
 # Predefined model names for common providers
 model_names = {
@@ -105,6 +58,7 @@ def get_latest_files(directory: str, file_types: list = ['.webm', '.zip']) -> Di
             print(f"Error getting latest {file_type} file: {e}")
             
     return latest_files
+
 async def capture_screenshot(browser_context):
     """Capture and encode a screenshot"""
     # Extract the Playwright browser instance

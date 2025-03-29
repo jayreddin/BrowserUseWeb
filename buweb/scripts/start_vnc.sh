@@ -72,6 +72,22 @@ if [ -z "$display_num" -o -z "$geometry" -o -z "$rfbport" -o -z "$wsport" ]; the
     exit 2
 fi
 
+if [ -n "${VIRTUAL_ENV:-}" -a -f "$VIRTUAL_ENV/bin/activate" ]; then
+  if ! type deactivate >/dev/null 2>&1; then
+    source "$VIRTUAL_ENV/bin/activate"
+  fi
+fi
+
+if ! type Xvnc >/dev/null 2>&1 ; then
+    echo "ERROR: not found Xvnc" >&2
+    exit 2
+fi
+
+if ! type websockify >/dev/null 2>&1 ; then
+    echo "ERROR: not found websockify" >&2
+    exit 2
+fi
+
 VNC_OPT="-depth 24 -SecurityTypes None -localhost -alwaysshared -ac -quiet"
 Xvnc ":$display_num" -geometry "$geometry" -rfbport "$rfbport" $VNC_OPT >/dev/null 2>&1 &
 pid_vnc=$!

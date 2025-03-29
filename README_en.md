@@ -3,14 +3,14 @@
 
 # BrowserUseWeb
 
-A Quart-based web application implementation of Browser-use.
-This is a sample implementation for browser automation using natural language.
+Browser-use has been transformed into a web application based on Quart.
+This is a sample implementation that performs browser operations using natural language.
 
-[Browser-use](https://github.com/browser-use)
+[Browser-use:https://github.com/browser-use](https://github.com/browser-use)
 
 This project also includes noVNC for browser screen transmission.
 
-[noVNC](https://github.com/novnc)
+[noVNC:https://github.com/novnc](https://github.com/novnc)
 
 ## Security Notice
 
@@ -30,49 +30,65 @@ Please use it only in secure network environments.
 
 ## Prerequisites
 
-The following packages are required on the OS:
+The following packages are required on the operating system:
 
-- Ubuntu 24.04
-  tigervnc-standalone-server
-  websockify
-  google-chrome
+- **Ubuntu 24.04**
+  - `tigervnc-standalone-server`
+  - `bubblewrap`
 
-- RHEL9 (Rocky9, Alma9, ...)
-  tigervnc-server
-  python3-websockify
-  google-chrome
+- **RHEL9 (Rocky9, Alma9, ...)**
+  - `tigervnc-server`
+  - `bubblewrap`
 
 ## Setup
 
 1. Clone the repository
 
-    ```bash
-    git clone https://github.com/route250/BrowserUseWeb.git
-    cd BrowserUseWeb
-    ```
+  ```bash
+  $ git clone https://github.com/route250/BrowserUseWeb.git
+  $ cd BrowserUseWeb
+  ```
 
-2. Set up Python virtual environment
+2. Python virtual environment
 
-    ```bash
-    python3.12 -m venv .venv --prompt 'Browser'
-    source .venv/bin/activate
-    .venv/bin/python -m pip install -U pip setuptools
-    ```
+  ```bash
+  $ python3.12 -m venv .venv --prompt 'Browser'
+  $ source .venv/bin/activate
+  (.venv) $ .venv/bin/python -m pip install -U pip setuptools
+  ```
 
 3. Install Python packages
 
+  ```bash
+  (.venv) $ pip install -r requirements.txt
+  ```
+
+4. Browser setup
+
+  #### 4.1 Using a browser with Playwright
+
+  - Install the required packages for the browser using Playwright.
+
     ```bash
-    pip install -r requirements.txt
+    (.venv) $ sudo /bin/bash
+    # source .venv/bin/activate
+    (.venv) # playwright install-deps
+    (.venv) # exit
     ```
 
-4. Set up Playwright
-
-    Install browsers with Playwright.
-    Depending on the browser you use, edit buweb/scripts/start_browser.sh to ensure the CHROME_BIN variable is properly set.
+  - Install Chromium using Playwright.
 
     ```bash
-    playwright install chromium
+    (.venv) $ playwright install chromium
     ```
+
+  #### 4.2 Using Google Chrome
+
+  Install Google Chrome as usual. If it is already installed, no further action is needed.
+
+  #### 4.3 Others
+
+  Depending on the browser you use, edit `buweb/scripts/start_browser.sh` and ensure that the `CHROME_BIN` variable is correctly set.
 
 5. Grant execution permissions
 

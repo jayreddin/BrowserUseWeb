@@ -221,7 +221,6 @@ class BwSession:
             script_path = str(files('buweb.scripts').joinpath('start_vnc.sh'))
             if not os.access(script_path, os.X_OK):
                 print(f"Error: {script_path} is not executable.")
-            print(script_path)
             vnc_proc = subprocess.Popen( [
                         script_path,
                         "--display", str(display_num),
@@ -406,6 +405,7 @@ class SessionStore:
         self._max_sessions:int = max_sessions
         self.sessions: dict[str, BwSession] = {}
         self.SessionsDir:str = os.path.abspath(dir)
+        os.makedirs(self.SessionsDir,exist_ok=True)
         self.hostsfile:str = os.path.join(self.SessionsDir,'hosts.adblock')
         self.Pool:ThreadPoolExecutor = Pool if isinstance(Pool,ThreadPoolExecutor) else ThreadPoolExecutor()
         self._lock2:asyncio.Lock = asyncio.Lock()

@@ -33,45 +33,61 @@ OS側に、以下のパッケージが必要です：
 
 - Ubuntu 24.04
   tigervnc-standalone-server
-  websockify
-  google-chrome
+  bubblewrap
 
 - RHEL9(Rocky9,Alma9,...)
   tigervnc-server
-  python3-websockify
-  google-chrome
+  bubblewrap
 
 ## セットアップ
 
 1. リポジトリクローン
 
   ```bash
-  git clone https://github.com/route250/BrowserUseWeb.git
-  cd BrowserUseWeb
+  $ git clone https://github.com/route250/BrowserUseWeb.git
+  $ cd BrowserUseWeb
   ```
 
 2. python仮想環境
 
   ```bash
-  python3.12 -m venv .venv --prompt 'Browser'
-  source .venv/bin/activate
-  .venv/bin/python -m pip install -U pip setuptools
+  $ python3.12 -m venv .venv --prompt 'Browser'
+  $ source .venv/bin/activate
+  (.venv) $ .venv/bin/python -m pip install -U pip setuptools
 ```
 
 3. pythonパッケージをインストール
 
   ```bash
-  pip install -r requirements.txt
+  (.venv) $ pip install -r requirements.txt
   ```
 
-4. playwriteのセットアップ
+4. ブラウザのセットアップ
 
-  playwriteでブラウザをインストールしてください。
-  使用するブラウザによって、buweb/scripts/start_browser.shを編集して、変数CHROME_BINが適切に設定されるようにして下さい。
+  4.1 playwrightでブラウザを使用する場合
 
-  ```bash
-  playwright install chromium
-  ```
+  - playwrightでブラウザに必要なパッケージをインストールして下さい。
+
+    ```bash
+    (.venv) $ sudo /bin/bash             # パッケージインストールのためにrootにする
+    # source .venv/bin/activate          # rootでも仮想環境をアクティベートして
+    (.venv) # playwright install-deps    # playwrightで、パッケージをインストールする
+    (.venv) # exit
+    ```
+
+  　- playwrightでchromiumをインストールして下さい。
+
+    ```bash
+    (.venv) $ playwright install chromium
+    ```
+  4.2 google-chromeを使用する場合
+
+    いつものようにgoogle-chromeをインストールしてください。
+    もちろん、すでにインストールされていれば、そのままでOKです。
+
+  4.3 その他
+
+    使用するブラウザによって、buweb/scripts/start_browser.shを編集して、変数CHROME_BINが適切に設定されるようにして下さい。
 
 5. 実行権限の付与：
 
@@ -122,7 +138,7 @@ OS側に、以下のパッケージが必要です：
 
   ```bash
   ./service_start.sh
-```
+  ```
 
 2. VS Codeで実行する場合
 

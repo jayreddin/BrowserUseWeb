@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os,sys,shutil
+import os,sys,shutil,subprocess
 from typing import AsyncIterable
 os.environ["ANONYMIZED_TELEMETRY"] = "false"
 import asyncio
@@ -226,6 +226,20 @@ async def service_api(api):
             pass
 
 def main():
+    # 環境チェック
+    check_result = subprocess.run(['bash', 'buweb/scripts/check_environment.sh'], 
+                                capture_output=True, text=True)
+    
+    # 常に標準出力を表示
+    if check_result.stdout:
+        print(check_result.stdout.strip())
+    if check_result.stderr:
+        print(check_result.stderr.strip(), file=sys.stderr)
+    
+    # エラーがある場合は終了
+    if check_result.returncode != 0:
+        sys.exit(1)
+
     # .envファイルをロード
     for envfile in ('config.env','.env'):
         try:

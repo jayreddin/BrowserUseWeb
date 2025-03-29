@@ -29,7 +29,6 @@ import asyncio
 from typing import Callable, Optional, Dict,Literal, Type
 from pydantic import BaseModel
 from logging import Logger,getLogger, ERROR as LogError
-from dotenv import load_dotenv
 
 from buweb.agent.buw_agent import BuwWriter, BuwAgent
 from buweb.controller.buw_controller import BwController

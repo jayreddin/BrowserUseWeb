@@ -35,7 +35,6 @@ import asyncio
 from typing import Callable, Optional, Dict,Literal, Type
 from pydantic import BaseModel
 from logging import Logger,getLogger
-from dotenv import load_dotenv
 
 logger:Logger = getLogger(__name__)
 

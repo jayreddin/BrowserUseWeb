@@ -30,7 +30,6 @@ from typing import Awaitable, Callable, Optional, Dict,Literal, Type
 from pydantic import BaseModel
 import pyperclip
 from logging import Logger,getLogger
-from dotenv import load_dotenv
 
 from buweb.agent.buw_agent import BuwWriter
 

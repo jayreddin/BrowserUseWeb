@@ -19,7 +19,6 @@ from browser_use.browser.browser import BrowserConfig, Browser
 from browser_use.agent.views import ActionResult
 from browser_use.browser.context import BrowserContext
 from browser_use.controller.service import Controller, DoneAction
-from main_content_extractor import MainContentExtractor
 from langchain.schema import BaseMessage, SystemMessage, HumanMessage
 from json_repair import repair_json
 from buweb.agent.buw_agent import BuwWriter

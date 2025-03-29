@@ -76,6 +76,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if ! type bwrap >/dev/null 2>&1; then
+    echo "ERROR: not found bwrap" >&2
+    exit 2
+fi
+
+if [ -n "${VIRTUAL_ENV:-}" -a -f "${VIRTUAL_ENV:-}/bin/activate" ]; then
+  if ! type deactivate >/dev/null 2>&1; then
+    source "$VIRTUAL_ENV/bin/activate"
+  fi
+fi
+
 CHROME_BIN=""
 PLAYWRIGHT_DIR=~/.cache/ms-playwright
 if [ -d "$PLAYWRIGHT_DIR" ]; then
