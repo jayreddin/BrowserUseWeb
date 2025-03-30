@@ -36,6 +36,7 @@ OS側に、以下のパッケージが必要です：
   bubblewrap
 
 - RHEL9(Rocky9,Alma9,...)
+  python3.11
   tigervnc-server
   bubblewrap
 

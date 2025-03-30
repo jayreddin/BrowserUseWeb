@@ -19,8 +19,9 @@ if [ -f /etc/os-release ]; then
       )
       ;;
     rhel|rocky|alma|centos|fedora)
-      OSType="rhel"
+      OsType="rhel"
       declare -A cmd_pkg_map=(
+        [python3.11]="python3.11"
         [bwrap]="bubblewrap"
         [Xvnc]="tigervnc-server"
         [firewall-cmd]="firewalld"
@@ -66,9 +67,9 @@ done
 # インストールが必要なパッケージがある場合、インストールを実行
 if [ ${#install_list[@]} -ne 0 ]; then
   if [ "ubuntu" == "$OsType" ]; then
-    cmds+=("sudo apt-get install ${install_list[@]}")
+    cmds+=("sudo apt-get install ${install_list[*]}")
   else
-    cmds+=("sudo dnf install ${install_list[@]}")
+    cmds+=("sudo dnf install ${install_list[*]}")
   fi
 fi
 
@@ -90,3 +91,32 @@ if [ ${#cmds[@]} -ne 0 ]; then
     eval "$cmd"
   done
 fi
+
+# 既存の仮想環境をdeactivate
+deactivate 2>/dev/null || true
+
+# venvをチェックする
+if [ -x .venv/bin/python3.11 -o -x .venv/bin/python3.12 ]; then
+  source .venv/bin/activate
+else
+  # venvを作成
+  rm -rf .venv
+  if [ "ubuntu" == "$OsType" ]; then
+    python3.12 -m venv .venv --prompt BUWeb
+  else
+    python3.11 -m venv .venv --prompt BUWeb
+  fi
+  source .venv/bin/activate
+  .venv/bin/python3 -m pip install -U pip setuptools  
+fi
+
+# パッケージをインストールする
+pip install -r requirements.txt
+# playwrightを設定する
+if [ "ubuntu" == "$OsType" ]; then
+  cmd="sudo bash -c \"source .venv/bin/activate && playwright install-deps\""
+  echo $cmd
+  eval $cmd
+  playwright install chromium
+fi
+
