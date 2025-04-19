@@ -51,9 +51,9 @@ class BuwWriter:
 
     def print(self, *, header:str="", msg:str|dict="", progress:str|None=None):
         """
-        header: タスク名
-        msg: メッセージ
-        progress: 進捗 Noneの場合は進捗変更なし
+        header: task name
+        msg: Message
+        progress: Progress If None, no progress change
         """
         try:
             timestamp = datetime.now().strftime("%H:%M:%S")
@@ -82,7 +82,7 @@ class BuwWriter:
         self.print( header=global_task, progress="running...")
 
     async def start_agent(self,agent_task:str):
-        """agentがrun開始したときに呼ばれる"""
+        # Called when the agent starts running.
         self._n_agents += 1
         self._n_steps = 0
         self._n_actions = 0

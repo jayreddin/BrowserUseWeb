@@ -148,14 +148,14 @@ body {
     border-radius: 4px;
 }
 
-/* ログエントリのスタイル */
+/* Log entry style */
 #log-output > div {
     margin-bottom: 4px;
     white-space: pre-wrap;
     word-break: break-word;
 }
 
-/* ログ出力コンテナの共通スタイル */
+/* Common styles for log output containers */
 .logoutput-container {
     border: 1px solid #ddd;
     border-radius: 4px;
@@ -163,7 +163,7 @@ body {
     margin: 3px 0;
 }
 
-/* ログ出力ヘッダーの共通スタイル */
+/* Common style for log output headers */
 .logoutput-container-header {
     background-color: #eee;
     cursor: pointer;
@@ -171,7 +171,7 @@ body {
     padding-left: 5px;
 }
 
-/* ログ出力ヘッダーの開閉インジケーター */
+/* Log output header open/close indicator */
 .logoutput-container-header::after {
     content: "▼";
     position: absolute;
@@ -179,7 +179,7 @@ body {
     transition: transform 0.3s;
 }
 
-/* 折りたたまれた状態のインジケーター */
+/* Collapsed state indicator */
 .logoutput-container.collapsed .logoutput-container-header::after {
     transform: rotate(-90deg);
 }
@@ -194,7 +194,7 @@ body {
     overflow: hidden;
 }
 
-/* ログ出力内容の共通スタイル */
+/* Common style for log output content */
 .logoutput-container-content {
     overflow-y: auto;
     transition: max-height 0.3s ease-out;
@@ -202,14 +202,14 @@ body {
     padding-right: 2px;
 }
 
-/* 折りたたまれた状態のコンテンツ */
+/* Collapsed content */
 .logoutput-container.collapsed .logoutput-container-content {
     max-height: 0;
     padding: 0;
     overflow: hidden;
 }
 
-/* タスクコンテナの個別スタイル */
+/* Individual style for task container */
 .task-container {
     margin-bottom: 8px;
 }
@@ -221,7 +221,7 @@ body {
 .task-container .logoutput-container-content {
 }
 
-/* エージェントコンテナの個別スタイル */
+/* Agent container individual styles */
 .agent-container {
 
 }
@@ -234,7 +234,7 @@ body {
 
 }
 
-/* ステップコンテナの個別スタイル */
+/* Individual style for step container */
 .step-container {
 }
 
@@ -245,7 +245,7 @@ body {
 .step-container .logoutput-container-content {
 }
 
-/* アクションコンテナの個別スタイル */
+/* Individual style for action container */
 .action-container {
 
 }
@@ -257,7 +257,7 @@ body {
 .action-container .logoutput-container-content {
 }
 
-/* スクロールバーのカスタマイズ */
+/* Scrollbar customization */
 #log-output::-webkit-scrollbar {
     width: 8px;
 }

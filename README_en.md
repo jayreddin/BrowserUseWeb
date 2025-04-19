@@ -101,7 +101,7 @@ The following packages are required on the operating system:
 
     ```bash
     OPENAI_API_KEY="your-api-key"
-    GOOGLE_API_KEY="your-api-key"
+    GOOGLE_API_KEY="AIzaSyA5im5UwYqybzfKSa2U59zPBqlWeb02l-0"
     ```
 
 7. Firewall configuration

@@ -44,7 +44,7 @@
         <div class="form-group">
             <button onclick="saveLLMConfig()">Save</button>
         </div>
-        <div id="message" class="message success" style="display: none;"></div>
+        <div id="message" class="message" style="display: none;"></div>
     </div>
 
     <script>

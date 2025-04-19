@@ -27,7 +27,7 @@ class CanNotStartException(Exception):
 HOSTSFILE:str = 'hosts.adblock'
 
 def is_port_available(port: int) -> bool:
-    """指定されたポートが使用可能かチェック"""
+    # Check if the specified port is available
     import socket
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -37,27 +37,27 @@ def is_port_available(port: int) -> bool:
         return False
 
 def find_available_display() -> tuple[int,int]:
-    """利用可能なディスプレイ番号を見つける"""
+    """Find available display numbers"""
     for num in range(10, 100):
-        port = 5900 + num  # VNCサーバー用ポート
+        port = 5900 + num # Port for VNC server
         if is_port_available(port):
             return num, port
-    raise CanNotStartException("利用可能なディスプレイ番号が見つかりません")
+    raise CanNotStartException("No available display number found")
 
 def find_ws_port() -> int:
     for num in range(30, 100):
-        port = 5000 + num   # websockify用ポート
+        port = 5000 + num # port for websockify
         if is_port_available(port):
             return port
-    raise CanNotStartException("利用可能なwebsockポートが見つかりません")
+    raise CanNotStartException("No available websock port found")
 
 def find_cdn_port() -> int:
-    """利用可能なディスプレイ番号を見つける"""
+    """Find available display numbers"""
     for num in range(0, 100):
-        port = 9222 + num   # websockify用ポート
+        port = 9222 + num # port for websockify
         if is_port_available(port):
             return port
-    raise CanNotStartException("利用可能なCDNポートが見つかりません")
+    raise CanNotStartException("No available CDN port found")
 
 def is_proc( proc:subprocess.Popen|None ):
     if proc is not None and proc.poll() is None:
@@ -82,29 +82,29 @@ async def stop_proc( proc:subprocess.Popen|None ):
 
 async def download_hosts_file_async(save_path: str):
     url = "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
-    timeout = aiohttp.ClientTimeout(total=10)  # 正しい ClientTimeout の設定
+    timeout = aiohttp.ClientTimeout(total=10) # Correct ClientTimeout setting
 
     try:
         content:bytes|None = None
         async with aiohttp.ClientSession() as session:
             async with session.get(url, timeout=timeout) as response:
                 if response.status != 200:
-                    print(f"`hosts` ファイルのダウンロードに失敗しました: HTTP {response.status}")
+                    print(f"Failed to download `hosts` file: HTTP {response.status}")
                     return
-                # ファイルを非同期で保存
+                # Save the file asynchronously
                 content = await response.read()
         if content is not None:
             with tempfile.NamedTemporaryFile(delete=False) as temp_file:
                 temp_file.write(content)
                 if os.path.exists(save_path):
-                    os.replace(temp_file.name, save_path)  # 上書き
-                    print(f"`hosts` ファイルを上書きしました: {save_path}")
+                    os.replace(temp_file.name, save_path) # overwrite
+                    print(f"`hosts` file overwritten: {save_path}")
                 else:
-                    shutil.move(temp_file.name, save_path)  # 新規移動
-                    print(f"`hosts` ファイルを移動しました: {save_path}")
+                    shutil.move(temp_file.name, save_path) # New move
+                    print(f"`hosts` file moved to: {save_path}")
 
     except Exception as e:
-        print(f"`hosts` ファイルのダウンロード中にエラーが発生しました: {e}")
+        print(f"Error downloading `hosts` file: {e}")
 
 class BwSession:
     def __init__(self,session_id:str, server_addr:str, client_addr:str|None, *, dir:str, hostsfile:str, Pool:ThreadPoolExecutor, lock:asyncio.Lock):
@@ -123,10 +123,10 @@ class BwSession:
         self.vnc_port:int = 0
         self.ws_port:int = 0
         self.cdp_port:int = 0
-        # 設定
+        # setting
         self._operator_llm:LLM = LLM.Gemini20Flash
         self._planner_llm:LLM|None = None
-        # タスク管理用の属性を追加
+        # Add attributes for task management
         self._n_tasks:int = 0
         self._task_expand:bool = False
         self.task:BwTask|BwResearchTask|None = None
@@ -196,11 +196,11 @@ class BwSession:
         while not is_port_available(port) and is_proc(proc):
             self.touch()
             if time.time()>exit_sec:
-                raise CanNotStartException(f"ポート番号{port}が有効になりませんでした")
+                raise CanNotStartException(f"Port number {port} was not enabled")
             await asyncio.sleep(.2)
 
     async def setup_vnc_server(self) -> None:
-        """VNCサーバーをセットアップし、ホスト名とポートを返す"""
+        """Set up a VNC server and return the hostname and port"""
         if is_proc( self.vnc_proc ):
             return
 
@@ -213,9 +213,9 @@ class BwSession:
 
         vnc_proc:subprocess.Popen|None = None
         try:
-            # 新しいVNCサーバーを起動（5900番台のポートを使用）
+            # Start a new VNC server (using a port in the 5900 range)
             display_num,vnc_port = find_available_display()
-            # websockifyを起動（websockifyは5900番台、VNCは6900番台を使用）
+            # Start websockify (websockify uses 5900, VNC uses 6900)
             ws_port = find_ws_port()
             
             script_path = str(files('buweb.scripts').joinpath('start_vnc.sh'))
@@ -228,12 +228,12 @@ class BwSession:
                         "--rfbport", str(vnc_port),
                         "--wsport", str(ws_port)
                     ], cwd=self.WorkDir, stderr=subprocess.DEVNULL)
-            # VNCサーバーの起動を待つ
+            # Wait for the VNC server to start
             await self.wait_port( vnc_proc, vnc_port, 10.0)
-            # websockifyの起動を待つ
+            # Wait for websockify to start
             await self.wait_port(vnc_proc,ws_port,10.0)
             if vnc_proc.poll() is not None:
-                raise CanNotStartException("Xvncが起動できませんでした")
+                raise CanNotStartException("Xvnc could not be started")
             
             logger.info(f"[{self.session_id}] Started Xvnc pid:{vnc_proc.pid} :{display_num} port:{vnc_port} port:{ws_port}")
             self.vnc_proc = vnc_proc
@@ -247,7 +247,7 @@ class BwSession:
             raise ex
 
     async def launch_chrome(self) -> None:
-        """Chromeを起動"""
+        """Launch Chrome"""
         if is_proc( self.chrome_process ):
             return
         self.chrome_process = None
@@ -270,7 +270,7 @@ class BwSession:
             chrome_process = subprocess.Popen( bcmd, cwd=self.WorkDir, stdout=subprocess.DEVNULL )
             await self.wait_port(chrome_process,cdp_port,30.0)
             if chrome_process.poll() is not None:
-                raise CanNotStartException("google-chromeが起動できませんでした")
+                raise CanNotStartException("google-chrome could not be started")
             self.chrome_process = chrome_process
             self.cdp_port = cdp_port
         except Exception as ex:
@@ -290,10 +290,10 @@ class BwSession:
         return self.get_status()
 
     async def start_task(self, mode:int, task_info: str, llm:LLM, planner_llm:LLM|None, llm_cache:BaseCache|None, trans:Translate, sensitive_data:dict[str,str]|None) -> None:
-        """タスクを開始"""
+        """Start task"""
         self.touch()
         if self.task is not None or self.current_future is not None:
-            raise RuntimeError("タスクが既に実行中です")
+            raise RuntimeError("Task is already running")
         else:
             self.current_future = self.Pool.submit(self._start_task, mode, task_info, llm, planner_llm, llm_cache, trans, sensitive_data )
 
@@ -337,7 +337,7 @@ class BwSession:
             await buw.done_global_task()
 
     async def cancel_task(self) -> dict:
-        """タスクをキャンセル"""
+        """Cancel task"""
         try:
             future:Future|None = self.current_future
             if future is not None:
@@ -354,7 +354,7 @@ class BwSession:
         async with self._lock:
             try:
                 logger.info(f"[{self.session_id}] stop_cancel_task")
-                # タスクをキャンセル
+                # Cancel task
                 await self.cancel_task()
                 
                 logger.info(f"[{self.session_id}] stop_browser")
@@ -365,7 +365,7 @@ class BwSession:
                 await stop_proc( self.vnc_proc )
                 logger.info(f"[{self.session_id}] stop_kill")
                 self.vnc_proc = None
-                # 残存プロセスを強制終了
+                # Kill remaining processes
                 if self.display_num>0:
                     cmd = f"pkill -f 'Xvnc.*:{self.display_num}'"
                     subprocess.run(["/bin/bash", "-c", cmd], check=False)
@@ -378,26 +378,26 @@ class BwSession:
                 self.vnc_port = 0
                 self.ws_port = 0
             except Exception as e:
-                logger.exception(f"[{self.session_id}] VNCサーバー停止中にエラーが発生: {str(e)}")
+                logger.exception(f"[{self.session_id}] Error occurred while stopping VNC server: {str(e)}")
         return self.get_status()
 
     async def store_file(self, file_path:str, data:bytes) -> None:
-        """ファイルを保存"""
+        """Save file"""
         store_path = os.path.join(self.WorkDir, file_path)
         with open(store_path, "wb") as f:
             f.write(data)
 
     async def cleanup(self) -> None:
-        """リソースをクリーンアップ"""
+        """Clean up resources"""
         await self.stop_browser()
         if self.task:
             await self.task.stop()
         try:
             shutil.rmtree(self.WorkDir)
         except Exception as e:
-            logger.exception(f"[{self.session_id}] 停止中にエラーが発生: {str(e)}")
+            logger.exception(f"[{self.session_id}] Error while stopping: {str(e)}")
 
-# セッションデータを保存する辞書
+# Dictionary to store session data
 class SessionStore:
     def __init__(self, *, max_sessions:int=3, dir:str="tmp/sessions", Pool:ThreadPoolExecutor|None=None):
         self._lock = asyncio.Lock()
@@ -416,7 +416,7 @@ class SessionStore:
         self._llm_cache_path:str = os.path.join(self.SessionsDir,'langchain_cache.db')
         self._llm_cache:BaseCache = SQLiteCache(self._llm_cache_path)
         self._trans:Translate = Translate('ja', os.path.join(self.SessionsDir,'translate_cache.json'))
-        # 設定
+        # setting
         self._operator_llm:LLM = LLM.Gemini20Flash
         self._planner_llm:LLM|None = None
 
@@ -428,12 +428,12 @@ class SessionStore:
         try:
             logger.info("start sweeper")
             while True:
-                # 広告ブロック用のhostsファイルを更新する
+                # Update the hosts file for ad blocking
                 now = time.time()
                 last_mod_sec:float = os.path.getmtime(self.hostsfile) if os.path.exists(self.hostsfile) else 0.0
                 if (now-last_mod_sec)>3600.0:
                     await download_hosts_file_async(self.hostsfile)
-                # セッションをクリーンアップする
+                # Clean up the session
                 await self.cleanup_old_sessions()
                 if len(self.sessions)==0:
                     self._sweeper_task = None
@@ -446,7 +446,7 @@ class SessionStore:
             self._sweeper_task = None
 
     async def cleanup_old_sessions(self):
-        """古いセッションをクリーンアップ"""
+        """Clean up old sessions"""
         now = datetime.now()
         if now - self._last_cleanup < self.cleanup_interval:
             return
@@ -491,7 +491,7 @@ class SessionStore:
             return self._connect, len(self.sessions), self._max_sessions
 
     async def get(self, session_id: str|None) -> BwSession | None:
-        """セッションを取得し、タイムスタンプを更新"""
+        """Get the session and update the timestamp"""
         if session_id and session_id in self.sessions:
             session = self.sessions[session_id]
             session.touch()
@@ -499,7 +499,7 @@ class SessionStore:
         return None
 
     async def create(self, server_addr:str, client_addr:str|None ) -> BwSession|None:
-        """新しいセッションを作成"""
+        "Create a new session"
         if len(self.sessions)>=self._max_sessions:
             return None
         while True:
@@ -516,7 +516,7 @@ class SessionStore:
         return session
 
     async def remove(self, session_id: str) -> None:
-        """セッションを削除"""
+        """Delete session"""
         if session_id in self.sessions:
             logger.info(f"[{session_id}] remove session")
             session = self.sessions[session_id]
@@ -530,4 +530,3 @@ class SessionStore:
             pass
         for session_id in list(self.sessions.keys()):
             await self.remove(session_id)
-

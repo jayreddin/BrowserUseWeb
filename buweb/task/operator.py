@@ -95,7 +95,7 @@ class BwTask:
     async def start(self,task:str):
 
         alog=getLogger("browser_use")
-        alog.setLevel(LogError)
+        log.setLevel(LogError)
         now = datetime.now()
         now_datetime = now.strftime("%A, %Y-%m-%d %H:%M")
 
@@ -106,16 +106,16 @@ class BwTask:
         self.logPrint(f"extractor:{x_extractor._full_name}")
         llm_cache:BaseCache = self._llm_cache
         operator_llm:BaseChatModel = create_model(self._operator_llm, cache=llm_cache)
-        test_res = await operator_llm.ainvoke(f"{now_datetime}動作テストです。正常稼働ならYesを返信して。")
+        test_res = await operator_llm.ainvoke(f"This is a {now_datetime} operation test. If it is working properly, reply Yes.")
         extraction_llm:BaseChatModel = create_model(x_extractor, cache=llm_cache)
         planner_llm:BaseChatModel|None = create_model(self._plan_llm, cache=llm_cache) if self._plan_llm is not None else None
 
         plan_text:str|None = None
         if planner_llm is not None:
             pre_prompt = [
-                "現在時刻:{now_datetime}",
-                "ブラウザを使って以下のタスクを実行するために、目的、ブラウザで収集すべき情報、手順、ゴールを考えて、簡潔で短い文章で実行プランを出力して。",
-                "---与えられたタスク---",
+                "Current time: {now_datetime}",
+                "To perform the following tasks using a browser, consider the purpose, the information the browser needs to gather, the steps, and the goal, and output a simple, short execution plan.",
+                "---Assigned task---",
                 "```",
                 task,
                 "```",
@@ -125,10 +125,10 @@ class BwTask:
                 plan_text = pre_result.content
                 #self.logPrint(plan_text)
 
-        web_task = f"# 現在時刻: {now_datetime}\n\n# 与えられたタスク:\n{task}"
+        web_task = f"# Current time: {now_datetime}\n\n# Given task:\n{task}"
         if plan_text is not None:
-            web_task += f"\n\n実行プラン:\n{plan_text}"
-        web_task += f"\n\n# 作業手順\n与えられたタスクと設定したゴールを満たしたか考えながら実行プランにそって実行して下さい。必要に応じて前の作業にもどったりプランを修正することも可能です。"
+            web_task += f"\n\nExecution plan:\n{plan_text}"
+        web_task += f"\n\n# Work procedure\nPlease follow the execution plan while considering whether you have achieved the given task and the set goal. You can go back to previous tasks and modify the plan if necessary."
 
         #---------------------------------
         #br_context = await self.get_browser_context()
@@ -154,16 +154,16 @@ class BwTask:
                 final_str = result.final_result()
         except Exception as ex:
             self.logPrint("")
-            self.logPrint(f"停止しました {str(ex)}")
+            self.logPrint(f"Stopped {str(ex)}")
         finally:
             self._agent = None
         #---------------------------------
         if final_str:
             post_llm = create_model(LLM.Gemini20Flash) # ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
-            report_task = f"# 現在時刻: {now_datetime}\n\n# 与えられたタスク:\n{task}"
+            report_task = f"# Current time: {now_datetime}\n\n# Given task:\n{task}"
             if plan_text is not None:
-                report_task += f"\n\n# 実行プラン:\n{plan_text}"
-            report_task += f"\n\n# 実行結果\n{final_str}\n\n# 実行結果の内容を日本語でレポートしてください。"
+                report_task += f"\n\n# Execution plan:\n{plan_text}"
+            report_task += f"\n\n# Execution result\n{final_str}\n\n# Please report the execution result in Japanese."
             post_result:BaseMessage = await post_llm.ainvoke( report_task )
             if isinstance(post_result.content,str):
                 report = post_result.content

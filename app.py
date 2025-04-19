@@ -25,7 +25,7 @@ session_store = SessionStore( dir=SessionsDir, Pool=Pool )
 
 def cleanup_sessions():
     print("### CLEANUP SESSIONS ###")
-    # 全セッションのクリーンアップ
+    # Clean up all sessions
     if session_store:
         asyncio.run( session_store.cleanup_all() )
 
@@ -39,12 +39,12 @@ async def style_css(path):
 
 @app.route('/novnc/<path:path>')
 async def novnc_files(path):
-    """noVNCのファイルを提供"""
+    """Provide noVNC files"""
     return await send_from_directory(novncdir, path)
 
 @app.route('/api/llm_list')
 async def llm_list():
-    """LLMの一覧を返す"""
+    """Return a list of LLMs"""
     try:
         llm_list = [{"name": llm.name, "value": llm._full_name} for llm in LLM]
         return jsonify({
@@ -63,12 +63,12 @@ async def config_api():
             planner = data.get('planner_llm')
             max_sessions = data.get('max_sessions')
             
-            # nameからLLMを取得
+            # Get LLM from name
             operator_llm = LLM[operator]
             planner_llm = LLM[planner] if planner else None
             max_sessions = int(max_sessions)
             session_store.configure(operator_llm, planner_llm, max_sessions)
-        # 現在のLLM設定を返す
+        # Return the current LLM settings
         current_connections,current_sessions,max_sessions = await session_store.get_status()
         return jsonify({
             'status': 'success',
@@ -100,14 +100,14 @@ async def session_stream(server_addr,client_addr) ->AsyncIterable[str]:
         await session_store.incr()
         ses = await session_store.create(server_addr,client_addr)
         if ses is None:
-            res = { 'status': 'success', 'msg': '接続数制限中' }
+            res = { 'status': 'success', 'msg': 'Connections are limited' }
             yield f"data: {json.dumps(res, ensure_ascii=False)}\n\n"
             while ses is None:
                 await asyncio.sleep(1)
                 ses = await session_store.create(server_addr,client_addr)
 
         res = ses.get_status()
-        res['msg'] = '接続完了'
+        res['msg'] = 'Connection complete'
         yield f"data: {json.dumps(res, ensure_ascii=False)}\n\n"
 
         before_res = {}
@@ -152,7 +152,7 @@ async def service_api(api):
         server_addr = request.host.split(':')[0]
         session_id = request.headers.get("X-Session-ID")
         ses:BwSession|None = await session_store.get(session_id)
-        # sessionの場合
+        # In case of session
         if api == 'session':
             if ses is not None:
                 return jsonify({'status': 'error', 'msg': 'unauth'}), 401
@@ -161,7 +161,7 @@ async def service_api(api):
             ress.timeout = None # disable timeout
             return ress
   
-        # session意外の場合
+        # In case of non-session
         if ses is None:
             return jsonify({'status': 'error', 'msg': 'unauth'}), 401
 
@@ -182,7 +182,7 @@ async def service_api(api):
                                     session_store._llm_cache, session_store._trans,
                                     sensitive_data)
             else:
-                msg = 'タスクが指定されていません'
+                msg = 'Task not specified'
             res = ses.get_status()
             if msg:
                 res['msg'] = msg
@@ -206,9 +206,9 @@ async def service_api(api):
                 return jsonify({'status': 'error', 'msg': 'No selected file'})
             
             try:
-                # ファイルの内容を読み込む
+                # Read the file contents
                 content = file.read()
-                # ファイルを保存
+                # Save file
                 await ses.store_file(file.filename, content)
                 return jsonify({'status': 'success', 'msg': ''})
             except Exception as e:
@@ -226,37 +226,37 @@ async def service_api(api):
             pass
 
 def main():
-    # 環境チェック
+    # Environment check
     check_result = subprocess.run(['bash', 'buweb/scripts/check_environment.sh'], 
                                 capture_output=True, text=True)
     
-    # 常に標準出力を表示
+    # Always display standard output
     if check_result.stdout:
         print(check_result.stdout.strip())
     if check_result.stderr:
         print(check_result.stderr.strip(), file=sys.stderr)
     
-    # エラーがある場合は終了
+    # Exit if there is an error
     if check_result.returncode != 0:
         sys.exit(1)
 
-    # .envファイルをロード
+    # Load .env file
     for envfile in ('config.env','.env'):
         try:
             if os.path.exists(envfile):
                 load_dotenv(envfile)
         except:
             pass
-    # シグナルハンドラ
+    # Signal handlers
     def sig_handler(signum, frame) -> None:
         sys.exit(1)
     signal.signal(signal.SIGTERM, sig_handler)
 
     try:
-        # サーバ起動
+        # Start the server
         app.run(host='0.0.0.0', port=5000, debug=False )
     finally:
-        # 終了処理
+        # Termination process
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         cleanup_sessions()
